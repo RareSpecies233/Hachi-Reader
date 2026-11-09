@@ -240,6 +240,9 @@ async function boot() {
   // 先确认是否需要令牌，避免未授权时闪一下空书架
   if (!(await ensureAuth())) return;
 
+  // 自定义字体（需要登录态才能读接口）
+  import('./core/fonts.js').then((m) => m.initFonts()).catch(() => {});
+
   addEventListener('hashchange', renderRoute);
 
   // Service Worker（由 pwa.js 提供，缺失时静默跳过）

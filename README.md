@@ -58,6 +58,18 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 
 也可以在 App 的「设置 → wenku8 账号」里填账号或 Cookie，会保存到 `data/wenku8.json` / `data/wenku8.cookie`（权限 0600）。**环境变量与参数优先。**
 
+### 启动与扫码
+
+启动后会打印 FIGlet 横幅、访问令牌，以及一张**终端二维码**：
+
+```
+手机扫码直接进入（相机对准下方二维码）：
+████████████████ ...
+   http://192.168.1.20:8080?token=xxxxx
+```
+
+手机相机扫一下就会带着令牌打开，并自动写进 HttpOnly Cookie，**之后不再需要输入**。二维码地址优先取 `HACHI_PUBLIC_URL`，否则自动探测局域网 IP。
+
 ### 访问令牌
 
 首次启动会打印 FIGlet 横幅并生成一个 256 位令牌：
@@ -67,6 +79,7 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 ```
 
 - 打开网页会看到解锁页，粘贴令牌即可；也可以用 `https://你的域名/?token=…` 直接进入（会自动从地址栏清除）。
+- 令牌以 **HttpOnly Cookie** 形式固化在浏览器里（有效期一年），JS 读不到、XSS 偷不走，图片请求也不需要再拼参数。
 - 令牌在「设置 → 访问令牌」里可查看、复制、**重新生成**（旧令牌立即失效）。
 - 令牌保存在 `data/token`（0600），忘了就 `cat data/token`。
 - 想关掉：`-no-auth` 或 `HACHI_NO_AUTH=1`。
@@ -86,6 +99,10 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 | ![解锁](docs/screenshots/gate-dark.png) | ![令牌](docs/screenshots/settings-token.png) |
 
 ## 功能
+
+**字体**
+- 可上传自定义 TTF / OTF / WOFF / WOFF2（≤80MB），解决生僻字逐字降级问题
+- 上传后自动启用，缺字仍回退系统字体
 
 **阅读器**
 - 滚动 / 翻页双模式；翻页用 CSS 多列自动分页

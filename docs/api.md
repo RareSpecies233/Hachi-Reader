@@ -175,3 +175,23 @@
 ### 登录接口补充
 
 `POST /api/login` 除 `{username,password}` 外，也接受 `{cookie}` 直接注入 Cookie 头（账号登录遇到验证码时使用），成功后保存到 `data/wenku8.cookie`。
+
+## 自定义字体接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/font` | `{ font: {name, ext, size, updatedAt} \| null }`，**no-store** |
+| GET | `/api/font/file` | 字体文件本体，`font/ttf` 等，长缓存 + ETag |
+| POST | `/api/font` | `multipart/form-data`，字段 `file`，上限 80MB，按魔数校验格式 |
+| DELETE | `/api/font` | 删除自定义字体 |
+
+前端拿到元信息后用 `@font-face` 注入 `HachiCustom`，并把 `--font-read` 覆盖为 `"HachiCustom", <原字体栈>`，因此缺字时仍会降级到系统字体，但优先命中上传字体。
+
+## 缓存语义
+
+服务端按接口语义显式区分，供 Service Worker 与浏览器正确缓存：
+
+- **可缓存**（内容类）：`/api/book/*`（不含 `/state`、`/read`）、`/api/explore/*`、`/api/search`、`/api/tags`、`/api/img`
+- **`Cache-Control: no-store`**（状态/机密类）：`/api/health`、`/api/token*`、`/api/unlock`、`/api/lock`、`/api/font*`、`/api/shelves*`、`/api/library`、`/api/updates*`、`/api/cache*`、`/api/settings`、`/api/stats/*`
+
+不区分会出现"加了书但书架不更新"这类幽灵问题。

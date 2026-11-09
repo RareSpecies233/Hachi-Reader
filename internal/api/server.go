@@ -92,6 +92,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/cache", s.handleCacheInfo)
 	m.HandleFunc("DELETE /api/cache/{id}", s.handleClearCache)
 
+	m.HandleFunc("GET /api/font", s.handleFontInfo)
+	m.HandleFunc("GET /api/font/file", s.handleFontFile)
+	m.HandleFunc("POST /api/font", s.handleFontUpload)
+	m.HandleFunc("DELETE /api/font", s.handleFontDelete)
+
 	m.HandleFunc("GET /api/settings", s.handleGetSettings)
 	m.HandleFunc("PUT /api/settings", s.handlePutSettings)
 
@@ -101,7 +106,34 @@ func (s *Server) routes() {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logger(s.auth(s.securityHeaders(s.mux))))
+	return s.recoverer(s.logger(s.auth(s.securityHeaders(s.cachePolicy(s.mux)))))
+}
+
+// cachePolicy 区分「内容」与「状态」：
+// 只有内容类 GET 允许被浏览器/Service Worker 缓存，用户状态类一律 no-store。
+// 否则会出现"加了书但书架不更新""令牌已轮换但前端还在用旧值"这类幽灵问题。
+func (s *Server) cachePolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") && !cacheableAPI(r.URL.Path) {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func cacheableAPI(p string) bool {
+	switch {
+	case p == "/api/img":
+		return true
+	case p == "/api/tags", p == "/api/search", strings.HasPrefix(p, "/api/search?"):
+		return true
+	case strings.HasPrefix(p, "/api/explore/"):
+		return true
+	case strings.HasPrefix(p, "/api/book/"):
+		// 正文与目录可以缓存；进度/已读状态不行
+		return !strings.Contains(p, "/state") && !strings.Contains(p, "/read")
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- 中间件

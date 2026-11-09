@@ -59,6 +59,26 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   return data;
 }
 
+/** 上传字体：multipart 不能走 JSON 请求封装 */
+async function uploadMultipart(path, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res;
+  try {
+    res = await fetch(path, { method: 'POST', body: fd, headers });
+  } catch {
+    throw new ApiError('network', '网络连接失败，请检查服务器', 0);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = data?.error || {};
+    throw new ApiError(err.code || 'error', err.message || `上传失败 (${res.status})`, res.status);
+  }
+  return data;
+}
+
 export const api = {
   health: () => request('/api/health'),
 
@@ -130,6 +150,11 @@ export const api = {
   logout: () => request('/api/logout', { method: 'POST' }),
   loginWithCookie: (cookie) =>
     request('/api/login', { method: 'POST', body: { cookie } }),
+
+  // 自定义字体
+  fontInfo: () => request('/api/font'),
+  uploadFont: (file) => uploadMultipart('/api/font', file),
+  deleteFont: () => request('/api/font', { method: 'DELETE' }),
 
   // 设置
   settings: () => request('/api/settings'),

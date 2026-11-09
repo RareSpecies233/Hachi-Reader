@@ -15,7 +15,7 @@
 // 注意：预缓存里不要写死 views/ 与 reader/ 的文件名 —— 它们由 app.js 动态 import，
 // 第一次访问时会走静态资源策略（SWR）在运行时被缓存。
 
-const SW_VERSION = 'v2';
+const SW_VERSION = 'v3';
 
 const SHELL_CACHE = `hachi-shell-${SW_VERSION}`;
 const STATIC_CACHE = `hachi-static-${SW_VERSION}`;

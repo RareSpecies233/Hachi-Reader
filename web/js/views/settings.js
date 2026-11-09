@@ -1,7 +1,8 @@
 // Hachi Reader — 设置页
 // 负责阅读偏好、wenku8 账号、缓存与数据管理。
 
-import { h, clear, fmtWordCount } from '../core/dom.js';
+import { h, clear } from '../core/dom.js';
+import { hasCustomFont, currentFont, uploadFont, removeFont } from '../core/fonts.js';
 
 let ctxRef = null;
 
@@ -16,6 +17,7 @@ export default async function render(root, ctx) {
   body.appendChild(sectionReading(ctx));
   body.appendChild(sectionBehavior(ctx));
   body.appendChild(sectionAppearance(ctx));
+  body.appendChild(sectionFont(ctx));
   body.appendChild(sectionRules(ctx));
 
   const account = await sectionAccount(ctx);
@@ -172,6 +174,7 @@ function sectionReading(ctx) {
     selectRow('正文字体', null, [
       { value: 'serif', label: '宋体（衬线）' },
       { value: 'sans', label: '黑体（无衬线）' },
+      ...(hasCustomFont() ? [{ value: 'custom', label: '自定义字体' }] : []),
     ], s.fontFamily, (v) => patch({ fontFamily: v })),
 
     toggleRow('自动边距', '根据屏幕自动计算舒适留白', () => s.autoMargin,
@@ -265,6 +268,69 @@ function sectionAppearance(ctx) {
     toggleRow('繁简转换', '把繁体正文自动转成简体', () => s.tradToSimp,
       (v) => patch({ tradToSimp: v })),
   ]);
+}
+
+/* ---------------------------------------------------------------- 自定义字体 */
+
+function sectionFont(ctx) {
+  const cur = currentFont();
+
+  const fileInput = h('input', {
+    type: 'file',
+    accept: '.ttf,.otf,.woff,.woff2,font/*',
+    style: { display: 'none' },
+  });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    ctx.toast('正在上传字体…', 4000);
+    try {
+      await uploadFont(file);
+      ctx.toast('字体已上传并启用');
+      setTimeout(() => ctx.navigate('/settings'), 500);
+    } catch (e) {
+      ctx.toast(e.message || '上传失败');
+    } finally {
+      fileInput.value = '';
+    }
+  });
+
+  const rows = [
+    h('div.row', [
+      h('div.grow', [
+        h('div.label', cur ? cur.name : '未使用自定义字体'),
+        h('div.desc', cur
+          ? `${fmtBytes(cur.size)} · ${String(cur.ext).toUpperCase()} · 已应用到阅读器`
+          : '遇到生僻字时浏览器会逐字降级，一行里可能出现多种字形'),
+      ]),
+      h('span.muted.small', cur ? '已就绪' : ''),
+    ]),
+    h('div.row', {
+      onclick: () => fileInput.click(),
+    }, [
+      h('div.grow', [
+        h('div.label', cur ? '更换字体文件' : '上传字体文件'),
+        h('div.desc', '支持 TTF / OTF / WOFF / WOFF2，建议上传覆盖完整的 CJK 字体，最大 80MB'),
+      ]),
+      h('span.chev', '›'),
+    ]),
+  ];
+
+  if (cur) {
+    rows.push(h('div.row', {
+      onclick: async () => {
+        if (!(await ctx.confirm('删除自定义字体？阅读器会回到系统字体。'))) return;
+        try {
+          await removeFont();
+          ctx.toast('已删除');
+          setTimeout(() => ctx.navigate('/settings'), 400);
+        } catch { ctx.toast('删除失败'); }
+      },
+    }, [h('div.grow', [h('div.label', '删除自定义字体')]), h('span.chev', '›')]));
+  }
+
+  rows.push(fileInput);
+  return section('自定义字体', rows);
 }
 
 /* ---------------------------------------------------------------- 替换规则 */
