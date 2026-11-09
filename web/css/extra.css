@@ -1,0 +1,215 @@
+/* Hachi Reader — 设置页 / 统计页 专用样式 */
+
+/* ---------- 分段控件 ---------- */
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.seg-item {
+  flex: 1;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.seg-item.active {
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+/* ---------- 设置项 ---------- */
+
+.setting-slider {
+  padding: 12px 14px 14px;
+}
+.setting-slider + .setting-slider { border-top: 1px solid var(--line); }
+
+.row-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.row-label .label { font-size: 15px; }
+.row-label .desc { margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+
+input.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--paper-3);
+  outline: none;
+}
+input.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--paper);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+  cursor: pointer;
+}
+input.range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--paper);
+  cursor: pointer;
+}
+
+/* ---------- 替换规则 ---------- */
+
+.rule-wrap { padding: 4px 0 10px; }
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.rule-row + .rule-row { border-top: 1px solid var(--line); }
+.rule-actions {
+  padding: 10px 14px 4px;
+}
+
+/* ---------- 账号 ---------- */
+
+.account-form { border-top: 1px solid var(--line); }
+.account-form .input {
+  background: var(--paper);
+  height: 44px;
+}
+
+/* ---------- 统计卡片 ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+.stat-card {
+  padding: 14px 12px;
+  border-radius: var(--radius);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.stat-label { font-size: 11.5px; color: var(--muted); }
+.stat-value {
+  margin-top: 6px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.stat-sub {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 热力图 ---------- */
+
+.hm-card { padding: 12px; }
+.hm-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hm-scroll::-webkit-scrollbar { display: none; }
+
+.heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 11px);
+  grid-auto-columns: 11px;
+  gap: 3px;
+  width: max-content;
+}
+
+.hm-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2.5px;
+  background: var(--paper-3);
+}
+.hm-cell.empty { background: transparent; }
+.hm-cell.l0 { background: var(--paper-3); }
+.hm-cell.l1 { background: color-mix(in srgb, var(--accent) 26%, var(--paper-3)); }
+.hm-cell.l2 { background: color-mix(in srgb, var(--accent) 48%, var(--paper-3)); }
+.hm-cell.l3 { background: color-mix(in srgb, var(--accent) 72%, var(--paper-3)); }
+.hm-cell.l4 { background: var(--accent); }
+
+.hm-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+/* ---------- 按书排行 ---------- */
+
+.book-rank {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.book-rank + .book-rank { border-top: 1px solid var(--line); }
+.book-rank:active { background: var(--paper-2); }
+
+.rank-no {
+  width: 20px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+}
+.rank-title {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rank-bar-track {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--paper-3);
+  overflow: hidden;
+}
+.rank-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.rank-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+@media (max-width: 360px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid > :last-child { grid-column: span 2; }
+}

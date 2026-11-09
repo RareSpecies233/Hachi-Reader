@@ -1,0 +1,102 @@
+# Hachi Reader — Caddy 反向代理示例（自动 HTTPS）
+#
+# 用途：iOS 只有在 HTTPS（或 localhost）下才允许注册 Service Worker，
+#       所以局域网 / 公网访问都要用 Caddy 这类能终止 TLS 的反代。
+#
+# 使用：
+#   1) 把 hachi.example.com 换成你自己的域名，A/AAAA 记录指向服务器公网 IP
+#      （或者用下面的「局域网内部域名」段，自己签证书）。
+#   2) 路由器放行 80 与 443（ACME HTTP-01 需要 80；用 DNS-01 则不需要）。
+#   3) sudo caddy validate --config Caddyfile
+#      sudo cp Caddyfile /etc/caddy/Caddyfile
+#      sudo systemctl reload caddy
+#
+# 服务端应只监听本机：HACHI_ADDR=127.0.0.1:8080
+
+{
+	# ACME 账号邮箱：证书快到期 / 失败时会通知
+	email you@example.com
+}
+
+# ---------------- 方案 A：公网域名 + 自动证书（推荐用于外网访问）----------------
+
+hachi.example.com {
+	encode zstd gzip
+
+	# 反向代理到本机的 hachi（systemd 默认 127.0.0.1:8080）
+	reverse_proxy 127.0.0.1:8080 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			# 抓取 wenku8 偶尔慢：连接别等太久，但等响应头可以宽松些
+			dial_timeout 5s
+			response_header_timeout 60s
+		}
+	}
+
+	# Service Worker 必须「每次都回源校验」，否则 iOS 上更新永远不生效
+	@sw path /sw.js
+	header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
+	@manifest path /manifest.webmanifest
+	header @manifest Content-Type "application/manifest+json"
+	header @manifest Cache-Control "no-cache"
+
+	# 应用外壳（HTML）不缓存，让发版立即生效
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+
+	# 静态资源给短缓存；文件名不带哈希，所以别设 immutable
+	@static path /css/* /js/* /icons/*
+	header @static Cache-Control "public, max-age=3600"
+
+	# 图片代理本身已经是 immutable，这里顺手延长
+	@img path /api/img*
+	header @img Cache-Control "public, max-age=31536000, immutable"
+
+	log {
+		output file /var/log/caddy/hachi-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format console
+	}
+}
+
+# ---------------- 方案 B：局域网内部域名 + Caddy 内部 CA ----------------
+#
+# 适合「不想把服务暴露到公网、也没有域名」的情况。
+# 需要把 Caddy 的根证书装到 iPhone 并在「关于本机 → 证书信任设置」里完全信任，
+# 否则 Safari 会报证书无效，Service Worker 依然不会注册。
+#
+# hachi.lan {
+# 	tls internal
+# 	encode zstd gzip
+# 	reverse_proxy 127.0.0.1:8080
+#
+# 	# Service Worker 同样要禁用缓存
+# 	@sw path /sw.js
+# 	header @sw Cache-Control "no-cache, no-store, must-revalidate"
+# }
+#
+# 导出根证书给 iPhone：
+#   sudo caddy trust                      # 在服务器本机信任（可选）
+#   sudo cp /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt /tmp/hachi-root.crt
+#   # 然后用 AirDrop / 邮件 / 局域网 HTTP 下载到 iPhone 安装，并在
+#   # 设置 → 通用 → 关于本机 → 证书信任设置 中打开完全信任
+#
+# 注意：Caddy 内部 CA 的根证书有效期很长，但中间证书会轮换；
+# 如果某天 iPhone 突然报证书错误，重新导出 root.crt 安装一次即可。
+
+# ---------------- 方案 C：只给本机调试（localhost 是安全上下文）----------------
+#
+# HACHI_ADDR=127.0.0.1:8080 直接开 http://localhost:8080 也能注册 Service Worker，
+# 但手机访问不到 localhost，所以只适合桌面浏览器调试。
+
+# ---------------- 纯 HTTP 反代（不推荐，仅排障）----------------
+#
+# :80 {
+# 	reverse_proxy 127.0.0.1:8080
+# }
+# 这样 iPhone 打开 http://192.168.x.x 能看页面，但没有 Service Worker、
+# 没有离线、没有「添加到主屏幕」的完整 PWA 行为。

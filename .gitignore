@@ -1,0 +1,19 @@
+# 构建产物
+/hachi
+/hachi.exe
+/dist/
+
+# 运行时数据（数据库、图片缓存、wenku8 凭据）
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+
+# 测试临时文件
+*.test
+coverage.out

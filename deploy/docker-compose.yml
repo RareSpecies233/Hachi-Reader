@@ -1,0 +1,57 @@
+# Hachi Reader — Docker Compose 示例
+#
+# 用法（在仓库根目录）：
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   docker compose -f deploy/docker-compose.yml logs -f
+#   docker compose -f deploy/docker-compose.yml down
+#
+# 默认只把 8080 绑到 127.0.0.1，由 Caddy / Nginx 在前面做 HTTPS。
+# 想直接暴露给局域网：把 ports 改成 "8080:8080"，并阅读 docs/deploy.md 的
+# 「局域网访问」——纯 http 下 iOS 仍然不能注册 Service Worker。
+
+services:
+  hachi:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: hachi-reader:local
+    container_name: hachi
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      HACHI_ADDR: ":8080"
+      HACHI_DATA: /data
+      TZ: Asia/Shanghai
+      # 可选：单用户鉴权
+      # HACHI_TOKEN: "change-me"
+
+    volumes:
+      - hachi-data:/data
+
+    # 只读根文件系统 + 独立 /tmp，压缩攻击面
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  hachi-data:

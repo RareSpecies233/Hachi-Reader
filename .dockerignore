@@ -1,0 +1,47 @@
+# Hachi Reader — Docker 构建上下文排除清单
+# 目标：镜像只包含 go.mod / go.sum / 源码 / web（embed 需要），其余一概不进上下文。
+
+# ---- 版本控制与系统垃圾 ----
+.git
+.gitignore
+.gitattributes
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+
+# ---- 文档与部署（运行时用不到）----
+docs/
+deploy/
+*.md
+LICENSE
+
+# ---- 本地构建产物 ----
+bin/
+dist/
+build/
+hachi
+hachi.exe
+hachi-*
+*.test
+*.out
+coverage.*
+
+# ---- 本地数据与日志（绝不能打进镜像）----
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# ---- 本地环境配置与密钥 ----
+.env
+.env.*
+*.local
+
+# ---- 编辑器 ----
+.vscode/
+.idea/

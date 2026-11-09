@@ -1,0 +1,59 @@
+{
+  "name": "Hachi Reader",
+  "short_name": "Hachi",
+  "description": "为 iOS 打造的 wenku8 轻小说阅读器：书架、探索与沉浸式阅读。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/#/shelf",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f1e7",
+  "theme_color": "#f6f1e7",
+  "categories": ["books", "education", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "书架",
+      "short_name": "书架",
+      "url": "/#/shelf"
+    },
+    {
+      "name": "探索",
+      "short_name": "探索",
+      "url": "/#/explore"
+    }
+  ]
+}

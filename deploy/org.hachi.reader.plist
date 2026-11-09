@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hachi Reader — macOS launchd 守护进程
+  安装位置：/Library/LaunchDaemons/org.hachi.reader.plist
+  属主：root:wheel，权限 0644
+
+  约定：
+    二进制  /usr/local/bin/hachi
+    数据    /usr/local/var/hachi
+    日志    /usr/local/var/log/hachi.log
+
+  运行用户 _hachi 需要提前创建（见 docs/deploy.md）。
+  如果不想建用户，删除 UserName / GroupName 两段（会以 root 运行，不推荐）。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.hachi.reader</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/hachi</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HACHI_ADDR</key>
+    <string>127.0.0.1:8080</string>
+    <key>HACHI_DATA</key>
+    <string>/usr/local/var/hachi</string>
+    <key>TZ</key>
+    <string>Asia/Shanghai</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/usr/local/var/hachi</string>
+
+  <key>UserName</key>
+  <string>_hachi</string>
+  <key>GroupName</key>
+  <string>_hachi</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 正常退出不拉起，崩溃/被杀才重启 -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ExitTimeOut</key>
+  <integer>20</integer>
+
+  <key>StandardOutPath</key>
+  <string>/usr/local/var/log/hachi.log</string>
+  <key>StandardErrorPath</key>
+  <string>/usr/local/var/log/hachi.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+
+  <key>Nice</key>
+  <integer>5</integer>
+</dict>
+</plist>

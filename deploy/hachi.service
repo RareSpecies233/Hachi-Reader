@@ -1,0 +1,62 @@
+# Hachi Reader — systemd 服务单元
+#
+# 安装位置：/etc/systemd/system/hachi.service
+# 前置：
+#   sudo useradd --system --home-dir /var/lib/hachi --shell /usr/sbin/nologin hachi
+#   sudo install -m 0755 hachi /usr/local/bin/hachi
+#   sudo install -d -o hachi -g hachi /var/lib/hachi
+#   sudo install -d /etc/hachi
+#
+# 监听 127.0.0.1:8080，由 Caddy / Nginx 反代成 HTTPS（iOS 装 PWA 必须 HTTPS）。
+# 如果你想直接暴露 8080 给局域网，把 HACHI_ADDR 改成 ":8080"（或在 env 文件里覆盖），
+# 并放行防火墙端口——但那样 iOS 上仍然不能注册 Service Worker，详见 docs/deploy.md。
+
+[Unit]
+Description=Hachi Reader (wenku8 PWA reader)
+Documentation=file:///usr/local/share/doc/hachi/deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hachi
+Group=hachi
+ExecStart=/usr/local/bin/hachi
+WorkingDirectory=/var/lib/hachi
+
+# 先给默认值，再由 EnvironmentFile 覆盖（同名的后者生效）
+Environment=HACHI_ADDR=127.0.0.1:8080
+Environment=HACHI_DATA=/var/lib/hachi
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/hachi/hachi.env
+
+# 只读根目录下，仅 /var/lib/hachi 可写
+StateDirectory=hachi
+ReadWritePaths=/var/lib/hachi
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0027
+LimitNOFILE=65536
+
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+KillSignal=SIGTERM
+SyslogIdentifier=hachi
+
+[Install]
+WantedBy=multi-user.target
