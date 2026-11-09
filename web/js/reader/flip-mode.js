@@ -1,12 +1,18 @@
 // Hachi Reader — 翻页模式
 //
 // 方案：CSS 多列分页，不自己测量每一行。
-//   容器固定为「视口内宽 × 视口内高」，column-width = 视口内宽，column-gap = 0，
-//   column-fill = auto；文字自动铺成 N 列，每列正好一页。
-//   翻页只做 translate3d(-page * pageWidth)，不改 DOM。
+//   文字列宽 = 页面宽度 W，column-gap = 0，column-fill = auto；文字自动铺成 N 列，每列一页。
+//   翻页只做 translate3d(-page * W)，不改 DOM。
 //
-// 页数 = 多列溢出宽度 scrollWidth ÷ 页宽。字体/边距/窗口尺寸变化后重新分页，
-// 并按比例恢复当前页，所以改排版不会丢阅读位置。
+// 整屏动画（问题 D）：
+//   变换层是 .reader-flip-page —— 一个覆盖整个阅读视口的 page 层，里面同时装着
+//   · .reader-flip-paper：4 页宽的不透明纸张层（背景色 + 纸纹 + 每页页边阴影）
+//   · .reader-flip-inner：多列文字层
+//   位移时纸张与文字一起走，观感是「整页翻过去」，而不是只有文字在动。
+//   HUD 在 .reader-flip 之外，保持静止。
+//
+// 图片（问题 C）：翻页模式给插图预留固定高度（CSS aspect/height），不再在 img load 后
+// 重新分页；图片 lazy + async decode，插图章节首屏更轻。
 
 import { h, clear } from '../core/dom.js';
 import {
@@ -16,8 +22,11 @@ import {
 export function createFlipMode(app) {
   const el = h('div.reader-flip', { 'data-mode': 'flip' });
   const viewport = h('div.reader-flip-viewport');
+  const pageEl = h('div.reader-flip-page');
+  const paper = h('div.reader-flip-paper');
   const inner = h('div.reader-flip-inner');
-  viewport.appendChild(inner);
+  pageEl.append(paper, inner);
+  viewport.appendChild(pageEl);
   el.appendChild(viewport);
 
   let destroyed = false;
@@ -25,16 +34,18 @@ export function createFlipMode(app) {
   let page = 0;
   let pageCount = 1;
   let pageW = 0;
+  let innerLeft = 0;
 
   let dragging = false;
   let dragDx = 0;
 
   let fadeTimer = 0;
-  let imgTimer = 0;
+  let settleTimer = 0;
   let resizeTimer = 0;
+  let turnTimer = 0;
   let ro = null;
-  let lastW = 0;
-  let lastH = 0;
+  let lastVW = 0;
+  let lastVH = 0;
 
   const getAnim = () => app.settings.flipAnimation || 'none';
   const progress = () => (pageCount > 1 ? page / (pageCount - 1) : 0);
@@ -47,16 +58,13 @@ export function createFlipMode(app) {
 
     inner.appendChild(chapterHeading(chapter, { compact: true }));
 
-    const opts = { onOpen: (src) => app.openLightbox(src), eager: true };
+    // eager=false：插图按需加载；CSS 预留高度保证分页稳定
+    const opts = { onOpen: (src) => app.openLightbox(src) };
     for (const b of chapter.blocks || []) {
       let node = null;
       if (b.type === 'text') node = textBlock(b.text, app.settings);
       else if (b.type === 'image') node = imageBlock(b.src, app.ctx, opts);
       if (!node) continue;
-      if (b.type === 'image') {
-        const img = node.querySelector('img');
-        if (img) img.addEventListener('load', scheduleRelayout, { once: true });
-      }
       inner.appendChild(node);
     }
 
@@ -72,53 +80,63 @@ export function createFlipMode(app) {
   }
 
   function setTransform(x, transition) {
-    inner.style.transition = transition || 'none';
-    inner.style.transform = `translate3d(${x}px,0,0)`;
+    pageEl.style.transition = transition || 'none';
+    pageEl.style.transform = `translate3d(${x}px,0,0)`;
+  }
+
+  function markTurning(on) {
+    pageEl.classList.toggle('is-turning', !!on);
+    clearTimeout(turnTimer);
+    if (on) turnTimer = setTimeout(() => pageEl.classList.remove('is-turning'), 300);
+  }
+
+  /** 纸张层始终保证当前页左右各一页可覆盖，移动时不会露出空白 */
+  function syncPaper() {
+    if (!pageW) return;
+    paper.style.left = `${Math.round(innerLeft + (page - 1) * pageW)}px`;
+    paper.style.width = `${Math.round(pageW * 4)}px`;
   }
 
   function settle() {
     dragDx = 0;
     setTransform(-page * pageW, 'none');
+    syncPaper();
+    markTurning(false);
   }
 
   function layout(progressValue) {
     if (destroyed || !chapter) return;
-    // clientWidth/Height 含 padding；多列容器必须用「内容盒」尺寸，
-    // 否则每页右侧/底部会被视口裁掉一截。
     const cs = getComputedStyle(viewport);
-    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    const W = Math.max(1, viewport.clientWidth - padX);
-    const H = Math.max(1, viewport.clientHeight - padY);
+    const padT = parseFloat(cs.paddingTop) || 0;
+    const padB = parseFloat(cs.paddingBottom) || 0;
+    // 页宽 = 容器全宽：下一列从视口边缘开始，左右不会漏出相邻页文字。
+    // 文本的水平留白交给 .r-p/.r-ch-head/.r-fig 的 padding（桌面再限 820px 居中）。
+    const W = Math.max(1, viewport.clientWidth);
+    const H = Math.max(1, viewport.clientHeight - padT - padB);
     if (!W || !H) return;
 
     const p = progressValue == null ? progress() : progressValue;
 
+    innerLeft = 0;
+    pageW = W;
+    el.style.setProperty('--r-page-w', `${W}px`);
+
+    inner.style.left = '0px';
+    inner.style.top = `${padT}px`;
     inner.style.width = `${W}px`;
     inner.style.height = `${H}px`;
     inner.style.columnWidth = `${W}px`;
     inner.style.columnGap = '0px';
     inner.style.columnFill = 'auto';
-    void inner.offsetWidth;            // 强制 reflow，让 scrollWidth 反映新分页
+    void inner.offsetWidth;            // 强制一次 reflow，让 scrollWidth 反映新分页
 
-    pageW = W;
     const sw = inner.scrollWidth || W;
     pageCount = Math.max(1, Math.round(sw / W));
     page = Math.min(pageCount - 1, Math.max(0, Math.round(p * (pageCount - 1))));
 
     settle();
-    lastW = W;
-    lastH = H;
-  }
-
-  function scheduleRelayout() {
-    if (destroyed) return;
-    clearTimeout(imgTimer);
-    imgTimer = setTimeout(() => {
-      if (destroyed || !chapter) return;
-      layout(progress());
-      app.setActive(chapter, progress());
-    }, 160);
+    lastVW = viewport.clientWidth;
+    lastVH = viewport.clientHeight;
   }
 
   function afterPageChange() {
@@ -136,7 +154,6 @@ export function createFlipMode(app) {
     target = Math.max(0, Math.min(pageCount - 1, target));
     if (target === page) {
       settle();
-      if (animate && getAnim() === 'slide') setTransform(-page * pageW, 'none');
       return;
     }
 
@@ -147,40 +164,47 @@ export function createFlipMode(app) {
       if (fadeTimer) {
         clearTimeout(fadeTimer);
         fadeTimer = 0;
-        inner.style.opacity = '';
+        pageEl.style.opacity = '';
       }
-      inner.style.transition = 'opacity .12s ease';
-      inner.style.opacity = '0';
+      markTurning(true);
+      // 整个 page 层（纸张 + 文字）一起淡出，不再只淡文字
+      pageEl.style.transition = 'opacity .12s ease';
+      pageEl.style.opacity = '0';
       fadeTimer = setTimeout(() => {
         fadeTimer = 0;
         if (destroyed) return;
         page = target;
         dragDx = 0;
-        inner.style.transition = 'none';
-        inner.style.transform = `translate3d(${-page * pageW}px,0,0)`;
-        void inner.offsetWidth;
-        inner.style.transition = 'opacity .18s ease';
-        inner.style.opacity = '1';
+        pageEl.style.transition = 'none';
+        setTransform(-page * pageW, 'none');
+        syncPaper();
+        void pageEl.offsetWidth;
+        pageEl.style.transition = 'opacity .18s ease';
+        pageEl.style.opacity = '1';
         afterPageChange();
         setTimeout(() => {
-          if (!destroyed) { inner.style.opacity = ''; inner.style.transition = ''; }
+          if (!destroyed) { pageEl.style.opacity = ''; pageEl.style.transition = ''; }
         }, 200);
       }, 120);
       return;
     }
 
     if (animate && anim === 'slide') {
-      // 起点固定为「当前页 + 手指位移」，终点是新页
+      markTurning(true);
+      // 起点固定为「当前页 + 手指位移」，终点是新页；纸张随 page 层一起走
       const fromX = -from * pageW + fromDx;
       setTransform(fromX, 'none');
-      void inner.offsetWidth;
+      void pageEl.offsetWidth;
       page = target;
       dragDx = 0;
       setTransform(-page * pageW, 'transform .24s cubic-bezier(.22,.7,.3,1)');
+      afterPageChange();
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => { if (!destroyed) syncPaper(); }, 260);
     } else {
       page = target;
       dragDx = 0;
-      setTransform(-page * pageW, 'none');
+      settle();
     }
     afterPageChange();
   }
@@ -197,9 +221,11 @@ export function createFlipMode(app) {
       dragDx = 0;
       page = 0;
       pageCount = 1;
-      if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = 0; }
-      inner.style.opacity = '';
-      inner.style.transition = '';
+      clearTimeout(fadeTimer);
+      clearTimeout(settleTimer);
+      fadeTimer = 0;
+      pageEl.style.opacity = '';
+      pageEl.style.transition = '';
       build();
       layout(land === 'end' ? 1 : p);
       app.setActive(ch, progress());
@@ -221,15 +247,13 @@ export function createFlipMode(app) {
     },
 
     dragStart() {
-      if (fadeTimer) {
-        clearTimeout(fadeTimer);
-        fadeTimer = 0;
-        inner.style.opacity = '';
-        inner.style.transition = '';
-      }
+      clearTimeout(fadeTimer);
+      fadeTimer = 0;
+      pageEl.style.opacity = '';
+      pageEl.style.transition = '';
       dragging = true;
       dragDx = 0;
-      inner.style.transition = 'none';
+      pageEl.style.transition = 'none';
     },
 
     dragMove(dx) {
@@ -237,7 +261,7 @@ export function createFlipMode(app) {
       let d = dx;
       if ((page === 0 && d > 0) || (page === pageCount - 1 && d < 0)) d *= 0.3;
       dragDx = d;
-      inner.style.transform = `translate3d(${-page * pageW + d}px,0,0)`;
+      pageEl.style.transform = `translate3d(${-page * pageW + d}px,0,0)`;
     },
 
     dragEnd(dx) {
@@ -257,6 +281,9 @@ export function createFlipMode(app) {
       const anim = getAnim();
       setTransform(-page * pageW, anim === 'slide' ? 'transform .22s cubic-bezier(.22,.7,.3,1)' : 'none');
       dragDx = 0;
+      if (anim === 'slide') markTurning(true);
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => { if (!destroyed) { syncPaper(); markTurning(false); } }, 240);
     },
 
     getSnapshot() {
@@ -286,8 +313,9 @@ export function createFlipMode(app) {
     destroy() {
       destroyed = true;
       clearTimeout(fadeTimer);
-      clearTimeout(imgTimer);
       clearTimeout(resizeTimer);
+      clearTimeout(settleTimer);
+      clearTimeout(turnTimer);
       if (ro) ro.disconnect();
       clear(inner);
       chapter = null;
@@ -301,7 +329,7 @@ export function createFlipMode(app) {
       if (destroyed || !chapter) return;
       const W = viewport.clientWidth;
       const H = viewport.clientHeight;
-      if (W === lastW && H === lastH) return;
+      if (W === lastVW && H === lastVH) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => { if (!destroyed) mode.onResize(); }, 120);
     });

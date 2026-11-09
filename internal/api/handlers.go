@@ -23,6 +23,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":            true,
 		"version":       Version,
 		"tokenRequired": s.currentToken() != "",
+		"dev":           s.cfg.Dev,
 		"wenku8": map[string]any{
 			"login":  s.wk.IsLoggedIn(),
 			"host":   s.wk.Host(),

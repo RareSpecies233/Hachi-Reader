@@ -36,11 +36,12 @@
   --r-pb: 26px;
   --r-pl: 22px;
   --r-pr: 22px;
-  --r-bg: #f6f1e7;
-  --r-ink: #2a2521;
-  --r-muted: #837767;
-  --r-line: #e0d5c0;
-  --r-accent: #b4552d;
+  /* 默认值跟随外壳 MD3 角色；typography.js 会在 reader-root 上写同名变量 */
+  --r-bg: var(--md-surface, #fcf8f4);
+  --r-ink: var(--md-on-surface, #1f1b18);
+  --r-muted: color-mix(in srgb, var(--md-on-surface-variant, #52443c) 80%, var(--md-surface, #fcf8f4));
+  --r-line: var(--md-outline-variant, #d8c8be);
+  --r-accent: var(--md-primary, #8c4a2f);
   --r-paper-opacity: .07;
   --r-progress: 0;
 }
@@ -48,7 +49,10 @@
 .reader-root[hidden] { display: none !important; }
 .reader-root [hidden] { display: none !important; }
 
-/* 背景纸纹 */
+/* 背景纸纹
+   注意：不要把它画在整条滚动内容（几千 px 高）上再 background-attachment:local。
+   iOS 会把整块表面当成需要重绘的区域，滚动时明显掉帧。
+   这里始终只画视口大小的一层，loop 模式由 JS 改 background-position 制造「纸在走」的错觉。 */
 .reader-bg {
   position: absolute;
   inset: 0;
@@ -56,21 +60,15 @@
   opacity: 0;
   background-repeat: repeat;
   background-size: 200px 200px;
+  background-position: 0 0;
 }
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
   background-image: var(--r-paper-tex);
 }
 .reader-root[data-theme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
-.reader-root[data-bg="paper"][data-bg-display="loop"][data-mode="scroll"] .reader-bg {
-  display: none;
-}
-.reader-root[data-bg="paper"][data-bg-display="loop"][data-mode="scroll"] .reader-scroll-inner {
-  background-image: var(--r-paper-tex);
-  background-repeat: repeat;
-  background-size: 200px 200px;
-  background-attachment: local;
-}
+/* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
+.reader-root[data-bg="paper"][data-mode="flip"] .reader-bg { display: none; }
 
 /* 舞台 */
 .reader-stage {
@@ -229,6 +227,13 @@
   overflow-wrap: break-word;
 }
 
+/* 已铺完的章节在离屏时跳过布局/绘制。JS 会把固有高度写成真实 px，
+   所以滚动高度不会因为 content-visibility 估算而跳动。 */
+.reader-scroll .r-ch.r-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 800px;
+}
+
 /* ---------------------------------------------------------------- 翻页模式 */
 
 .reader-flip {
@@ -236,36 +241,115 @@
   top: 0;
   bottom: 0;
   left: 50%;
-  width: min(100%, 880px);
+  width: min(100%, 1100px);
   transform: translateX(-50%);
+  overflow: hidden;
+}
+/* 视口负责裁剪；左右留白由每个文本块自己的 padding 负责，页宽 = 容器全宽 */
+.reader-flip-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   padding:
     calc(var(--r-pt) + env(safe-area-inset-top, 0px))
-    calc(var(--r-pr) + env(safe-area-inset-right, 0px))
+    0
     calc(var(--r-pb) + env(safe-area-inset-bottom, 0px))
-    calc(var(--r-pl) + env(safe-area-inset-left, 0px));
+    0;
 }
-/* 裁剪必须发生在「没有 padding」的元素上：
-   overflow 的裁剪边界是 padding box，带 padding 会把上一列漏进留白区。 */
-.reader-flip-viewport {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  padding: 0;
+/* 变换层：覆盖整个阅读视口。纸张 + 多列文字都在里面，翻页时整页一起位移。
+   HUD 在 .reader-flip 之外，不会被推走。 */
+.reader-flip-page {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+}
+/* 纸张层：宽度 = 4 页，覆盖当前页左右各一页；位移时背景/纸纹/页边阴影一起走 */
+.reader-flip-paper {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--r-page-w, 100%) * 4);
+  background-color: var(--r-bg);
+  background-image: linear-gradient(to right,
+    rgba(0, 0, 0, .13) 0,
+    rgba(0, 0, 0, .04) 9px,
+    rgba(0, 0, 0, 0) 18px,
+    rgba(0, 0, 0, 0) calc(100% - 1px),
+    rgba(0, 0, 0, .085) 100%);
+  background-size: var(--r-page-w, 100%) 100%;
+  background-repeat: repeat-x;
+  pointer-events: none;
+}
+.reader-root[data-theme="dark"] .reader-flip-paper {
+  background-image: linear-gradient(to right,
+    rgba(0, 0, 0, .42) 0,
+    rgba(0, 0, 0, .16) 10px,
+    rgba(0, 0, 0, 0) 22px,
+    rgba(0, 0, 0, 0) calc(100% - 1px),
+    rgba(0, 0, 0, .3) 100%);
+}
+.reader-root[data-bg="paper"] .reader-flip-paper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--r-paper-tex);
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  opacity: var(--r-paper-opacity);
+  pointer-events: none;
 }
 .reader-flip-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
   column-gap: 0;
   column-fill: auto;
-  will-change: transform;
-  backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
   overflow-wrap: break-word;
 }
-/* 翻页时图片不跨页 */
-.reader-flip-inner .r-fig { max-height: 100%; }
-.reader-flip-inner .r-img { max-height: 60vh; }
+/* 插图预留固定高度：图片异步加载也不会重新分页，避免翻到一半整章跳动 */
+.reader-flip-inner .r-fig {
+  height: 60vh;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1.15em 0;
+}
+.reader-flip-inner .r-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+/* 每段/标题/插图自己带左右留白：页宽全宽时，列边界正好在视口外，
+   不会像以前那样在纸边露出上一页/下一页的文字条。 */
+.reader-flip .r-p,
+.reader-flip .r-ch-head,
+.reader-flip .r-fig {
+  padding-left: calc(var(--r-pl) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--r-pr) + env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+.reader-flip .r-end {
+  padding-left: calc(var(--r-pl) + env(safe-area-inset-left, 0px));
+  padding-right: calc(var(--r-pr) + env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+@media (min-width: 700px) {
+  .reader-flip .r-p,
+  .reader-flip .r-ch-head,
+  .reader-flip .r-fig {
+    width: min(100%, 820px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
 
 /* ---------------------------------------------------------------- 顶部 HUD */
 
@@ -277,9 +361,8 @@
   transition: opacity .22s ease, transform .26s cubic-bezier(.22, .7, .3, 1);
   color: var(--r-ink);
   font-family: var(--font-ui);
-  /* 渐变边缘会透出正文，用背景模糊把字虚化掉，避免"重影"观感 */
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  /* 性能：不要在这里用 backdrop-filter。HUD 覆盖可滚动正文，iOS 上每帧都要
+     对身后内容做高斯模糊，是阅读器卡顿的头号原因。改用不透明度渐变遮住正文。 */
 }
 
 .reader-hud-top {
@@ -292,11 +375,11 @@
     calc(env(safe-area-inset-right, 0px) + 10px)
     26px
     calc(env(safe-area-inset-left, 0px) + 10px);
-  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来 */
+  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来（不依赖模糊） */
   background: linear-gradient(to bottom,
     var(--r-bg) 0%,
-    var(--r-bg) 68%,
-    color-mix(in srgb, var(--r-bg) 62%, transparent) 88%,
+    var(--r-bg) 86%,
+    color-mix(in srgb, var(--r-bg) 98%, transparent) 95%,
     transparent 100%);
 }
 
@@ -351,11 +434,11 @@
     calc(env(safe-area-inset-right, 0px) + 8px)
     calc(env(safe-area-inset-bottom, 0px) + 8px)
     calc(env(safe-area-inset-left, 0px) + 8px);
-  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来 */
+  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来（不依赖模糊） */
   background: linear-gradient(to top,
     var(--r-bg) 0%,
-    var(--r-bg) 80%,
-    color-mix(in srgb, var(--r-bg) 62%, transparent) 92%,
+    var(--r-bg) 90%,
+    color-mix(in srgb, var(--r-bg) 98%, transparent) 96%,
     transparent 100%);
 }
 
@@ -563,7 +646,7 @@
   right: 0;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
   text-align: center;
-  color: rgba(246, 241, 231, .55);
+  color: rgba(255, 255, 255, .55);
   font-size: 11.5px;
   letter-spacing: .12em;
   font-family: var(--font-ui);
@@ -641,7 +724,7 @@
   flex: 0 0 auto;
 }
 .r-mini:active { transform: scale(.96); }
-.r-mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.r-mini.primary { background: var(--accent); border-color: var(--accent); color: var(--md-on-primary, #fff); }
 .r-mini.danger { color: var(--danger); }
 
 .r-rules { padding: 0 8px; }
@@ -701,9 +784,8 @@
   padding: 10px 10px 7px;
   font-size: 11px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--paper) 94%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  /* 目录面板的 sticky 卷头也不要模糊：滚动目录时同样会拖慢 iOS */
+  background: var(--paper);
 }
 .r-vol-title { font-size: 12.5px; font-weight: 700; color: var(--ink); }
 .r-vol-count { margin-left: auto; font-size: 10.5px; }
@@ -738,7 +820,7 @@
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--md-on-primary, #fff);
   font-size: 10px;
   font-weight: 500;
 }
@@ -753,5 +835,4 @@
 
 @media (min-width: 700px) {
   .reader-scroll-inner { max-width: 700px; }
-  .reader-flip { width: min(100%, 820px); }
 }

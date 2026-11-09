@@ -31,7 +31,37 @@ const iconEl = (svg) => h('span.r-ico', { html: svg });
 
 let currentApp = null;
 
+// iOS / Safari 的边缘返回手势会先触发一次 history 回退，再由框架的 hashchange
+// 重渲染路由。守卫恢复时我们要把这次 hashchange 吃掉，否则读者会被弹回上一章、
+// 甚至整页重载。窗口很短，只对「同一个阅读路由」生效，不影响真实导航。
+let guardRestoreAt = 0;
+const GUARD_RESTORE_WINDOW = 1200;
+
+function readerHashParts(hash = location.hash) {
+  const raw = String(hash || '').replace(/^#/, '').split('?')[0];
+  return raw.split('/').filter(Boolean).map((s) => {
+    try { return decodeURIComponent(s); } catch { return s; }
+  });
+}
+
+function hashIsReaderFor(bookId, chapterId) {
+  const seg = readerHashParts();
+  return seg[0] === 'read'
+    && String(seg[1]) === String(bookId)
+    && String(seg[2]) === String(chapterId);
+}
+
+function isGuardRestoreFor(app, bookId, chapterId) {
+  return !!app && !app.destroyed
+    && performance.now() - guardRestoreAt < GUARD_RESTORE_WINDOW
+    && String(app.bookId) === String(bookId)
+    && String(app.chapterId) === String(chapterId)
+    && hashIsReaderFor(bookId, chapterId);
+}
+
 export default async function render(root, ctx) {
+  // 守卫恢复引起的同章节 hashchange：保留当前实例，不重新拉章节、不闪屏。
+  if (isGuardRestoreFor(currentApp, ctx.params?.bookId, ctx.params?.chapterId)) return;
   if (currentApp) currentApp.destroy();
 
   // app.js 用 h('div#reader-root.reader-root') 创建根节点，但 h() 不支持 #id 语法：
@@ -50,10 +80,12 @@ export default async function render(root, ctx) {
 }
 
 export function destroy() {
-  if (currentApp) {
-    currentApp.destroy();
-    currentApp = null;
-  }
+  if (!currentApp) return;
+  // 框架在每次 hashchange 前都会先调用 destroy()。守卫恢复的那一次必须跳过，
+  // 否则 render() 里已经没有实例可保留了。
+  if (isGuardRestoreFor(currentApp, currentApp.bookId, currentApp.chapterId)) return;
+  currentApp.destroy();
+  currentApp = null;
 }
 
 class ReaderApp {
@@ -88,7 +120,19 @@ class ReaderApp {
     this.guardPushed = false;
     this.suppressPop = false;
     this.lastBackAt = 0;
+    this.guardLen = 0;
+    this.inAppNavAt = 0;
     this.booted = false;
+
+    // 交互命中区：HUD 高度随安全区/字号变化，缓存到下一次 resize
+    this._bands = null;
+    // 点 HUD 区域唤起菜单后，同一次触摸的后续 click 不能再命中刚出现的按钮
+    this._hudGuardUntil = 0;
+    this._suppressClickUntil = 0;
+    this._paperShift = null;
+    this._lastPct = null;
+    this._lastChapterTitle = null;
+    this._lastPageLabel = null;
 
     this.session = null;
     this.saveTimer = 0;
@@ -211,6 +255,16 @@ class ReaderApp {
       h('div.r-nav', [this.prevBtn, this.chaptersBtn, this.settingsBtn, this.nextBtn]),
     ]);
 
+    // 唤起 HUD 的同一拍触摸不要顺带点到按钮
+    for (const hud of [this.topHud, this.bottomHud]) {
+      hud.addEventListener('click', (e) => {
+        if (performance.now() < this._hudGuardUntil) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+    }
+
     this.errorEl = h('div.reader-error', { hidden: true }, [
       h('div.r-err-mark', '!'),
       h('div.r-err-msg', ''),
@@ -257,6 +311,7 @@ class ReaderApp {
     this.onResizeBound = debounce(() => {
       if (this.destroyed) return;
       const snap = this.mode?.getSnapshot?.();
+      this._bands = null;
       applyMargins(this.root, this.settings);
       if (this.mode?.onResize) this.mode.onResize();
       else this.mode?.refresh?.(snap);
@@ -265,6 +320,8 @@ class ReaderApp {
     addEventListener('resize', this.onResizeBound);
     addEventListener('orientationchange', this.onResizeBound);
     if (window.visualViewport) visualViewport.addEventListener('resize', this.onResizeBound);
+
+    this.bindNavigation();
 
     this.mq = matchMedia('(prefers-color-scheme: dark)');
     this.onSchemeBound = () => {
@@ -275,11 +332,31 @@ class ReaderApp {
     this.bindGestures();
   }
 
+  /** Navigation API：区分「应用内 push（含 location.hash）」与真实历史回退。
+      历史和 location.hash 在 Chrome 里都会派发 popstate，只看 URL 会误伤正常导航；
+      history.length 在 50 条上限后又不再增长，所以优先用 navigationType。 */
+  bindNavigation() {
+    const nav = window.navigation;
+    if (!nav?.addEventListener) return;
+    this.onNavigateBound = (e) => {
+      if (e.navigationType !== 'push' && e.navigationType !== 'replace') return;
+      let url = null;
+      try { url = new URL(e.destination?.url || '', location.href); } catch { return; }
+      // 守卫自身 / 章节 replaceState 不是「离开阅读器」
+      if (url.hash === this.currentHash()) return;
+      this.inAppNavAt = performance.now();
+    };
+    nav.addEventListener('navigate', this.onNavigateBound);
+  }
+
   bindGestures() {
     const stage = this.stage;
     let g = null;
 
-    const ignore = (t) => !!(t?.closest?.('button, a, input, select, textarea, .r-img, .r-end'));
+    // HUD、弹层、按钮、图片灯箱、章末卡片都必须优先响应，点击不能穿透成翻页。
+    const ignore = (t) => !!(t?.closest?.(
+      'button, a, input, select, textarea, .reader-hud, .r-sheet, .sheet, .r-lightbox, .r-end, [data-no-tap]',
+    ));
 
     const down = (e) => {
       if (this.destroyed || !e.isPrimary) return;
@@ -288,8 +365,12 @@ class ReaderApp {
       g = {
         x: e.clientX, y: e.clientY, t: performance.now(),
         dx: 0, dy: 0, moved: false, dragging: false, id: e.pointerId,
+        // 图片：点按交给灯箱，横向拖动仍然翻页。不要 capture，否则 click 目标会变。
+        fromImage: !!e.target?.closest?.('.r-img'),
       };
-      try { stage.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+      if (!g.fromImage) {
+        try { stage.setPointerCapture(e.pointerId); } catch { /* 忽略 */ }
+      }
     };
 
     const move = (e) => {
@@ -316,6 +397,8 @@ class ReaderApp {
       const dt = performance.now() - state.t;
 
       if (state.dragging) {
+        // 拖动结束后浏览器还会补一个 click：别让它同时触发图片灯箱/链接
+        this._suppressClickUntil = performance.now() + 380;
         if (this.mode?.dragEnd) this.mode.dragEnd(state.dx);
         else if (Math.abs(state.dx) > Math.max(40, stage.clientWidth / 4)) {
           if (state.dx < 0) this.mode?.nextPage?.();
@@ -336,22 +419,92 @@ class ReaderApp {
       if (state.dragging) this.mode?.dragEnd?.(0);
     };
 
-    stage.addEventListener('pointerdown', down);
-    stage.addEventListener('pointermove', move);
-    stage.addEventListener('pointerup', up);
-    stage.addEventListener('pointercancel', cancel);
+    const clickGuard = (e) => {
+      if (performance.now() < (this._suppressClickUntil || 0)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    stage.addEventListener('click', clickGuard, true);
+
+    stage.addEventListener('pointerdown', down, { passive: true });
+    stage.addEventListener('pointermove', move, { passive: true });
+    stage.addEventListener('pointerup', up, { passive: true });
+    stage.addEventListener('pointercancel', cancel, { passive: true });
+
+    /* iOS 边缘返回手势：Safari 会在 pointermove 之前就接管横向拖拽。
+       只有非 passive 的 touchmove + 判定横向后 preventDefault() 才来得及。
+       纵向滚动（|dy| 占优）不拦截，保证滚动模式不受影响。 */
+    let t0 = null;
+    const touchStart = (e) => {
+      if (this.destroyed || e.touches.length !== 1) { t0 = null; return; }
+      if (ignore(e.target)) { t0 = null; return; }
+      const t = e.touches[0];
+      t0 = { x: t.clientX, y: t.clientY, horizontal: false };
+    };
+    const touchMove = (e) => {
+      if (!t0 || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - t0.x;
+      const dy = t.clientY - t0.y;
+      if (!t0.horizontal && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        t0.horizontal = true;
+      }
+      if (t0.horizontal && e.cancelable) e.preventDefault();
+    };
+    const touchEnd = () => { t0 = null; };
+
+    stage.addEventListener('touchstart', touchStart, { passive: true });
+    stage.addEventListener('touchmove', touchMove, { passive: false });
+    stage.addEventListener('touchend', touchEnd, { passive: true });
+    stage.addEventListener('touchcancel', touchEnd, { passive: true });
 
     this._cleanup.push(() => {
       stage.removeEventListener('pointerdown', down);
       stage.removeEventListener('pointermove', move);
       stage.removeEventListener('pointerup', up);
       stage.removeEventListener('pointercancel', cancel);
+      stage.removeEventListener('click', clickGuard, true);
+      stage.removeEventListener('touchstart', touchStart);
+      stage.removeEventListener('touchmove', touchMove);
+      stage.removeEventListener('touchend', touchEnd);
+      stage.removeEventListener('touchcancel', touchEnd);
     });
+  }
+
+  /** 顶部 / 底部 HUD 的实际高度（含安全区）；缓存到 resize，避免每次点击读布局 */
+  hudBands() {
+    const vw = this.root.clientWidth || innerWidth;
+    if (this._bands && this._bands.vw === vw) return this._bands;
+    this._bands = {
+      vw,
+      top: (this.topHud?.offsetHeight || 0) + 2,
+      bottom: (this.bottomHud?.offsetHeight || 0) + 2,
+    };
+    return this._bands;
   }
 
   onTap(x, y) {
     if (x == null) return;
+    // 点插图：交给图片自己的 click 打开灯箱，不翻页
+    const hit = document.elementFromPoint(x, y);
+    if (hit?.closest?.('.r-img')) return;
     const w = this.root.clientWidth || innerWidth;
+    const h = this.root.clientHeight || innerHeight;
+    const bands = this.hudBands();
+
+    // 左/右 1/3 翻页区不能压到顶部栏和底部栏：
+    // HUD 收起时，这两个区域应该先把菜单唤回来，而不是翻页。
+    if (y < bands.top || y > h - bands.bottom) {
+      if (!this.hudVisible) {
+        // 触摸序列：pointerup → touchend → click。HUD 在这一拍刚显示，
+        // 浏览器随后合成的 click 会落到返回/目录按钮上，必须短暂屏蔽。
+        this._hudGuardUntil = performance.now() + 350;
+        this.toggleHud(true);
+      }
+      return;
+    }
+
     if (!this.settings.tapToTurn) {
       this.toggleHud();
       return;
@@ -505,10 +658,9 @@ class ReaderApp {
     this.api.markRead(this.bookId, id, true).catch(() => {});
   }
 
-  updateUrl(cid) {
+  updateUrl() {
     try {
-      const suffix = this.queryMode ? `?mode=${this.queryMode}` : '';
-      const hash = `#/read/${encodeURIComponent(this.bookId)}/${encodeURIComponent(cid)}${suffix}`;
+      const hash = this.currentHash();
       if (location.hash !== hash) history.replaceState(history.state, '', hash);
     } catch { /* 忽略 */ }
   }
@@ -603,28 +755,60 @@ class ReaderApp {
     const s = this.settings;
     const ch = this.activeChapter || this.chapter;
 
-    this.bookTitleEl.textContent = this.book?.title || '阅读';
-    this.chapterTitleEl.textContent = ch?.title || '';
+    const bookTitle = this.book?.title || '阅读';
+    if (bookTitle !== this._lastBookTitle) {
+      this._lastBookTitle = bookTitle;
+      this.bookTitleEl.textContent = bookTitle;
+    }
+    const chTitle = ch?.title || '';
+    if (chTitle !== this._lastHudChapter) {
+      this._lastHudChapter = chTitle;
+      this.chapterTitleEl.textContent = chTitle;
+    }
 
     const pct = this.totalPct();
     const page = s.showProgress ? (this.mode?.pageLabel?.() || '') : '';
 
     this.timeEl.hidden = !s.showTime;
-    this.chapterInd.hidden = !s.showChapter || !ch?.title;
-    this.chapterInd.textContent = ch?.title || '';
-    this.pageInd.hidden = !page;
-    this.pageInd.textContent = page;
-    this.percentInd.hidden = !s.showProgress;
-    this.percentInd.textContent = `${pct}%`;
+    this.chapterInd.hidden = !s.showChapter || !chTitle;
 
-    this.progressLine.style.setProperty('--r-progress', String(pct / 100));
+    const indTitle = chTitle;
+    if (indTitle !== this._lastChapterTitle) {
+      this._lastChapterTitle = indTitle;
+      this.chapterInd.textContent = indTitle;
+    }
+
+    this.pageInd.hidden = !page;
+    if (page !== this._lastPageLabel) {
+      this._lastPageLabel = page;
+      this.pageInd.textContent = page;
+    }
+
+    this.percentInd.hidden = !s.showProgress;
+    if (pct !== this._lastPct) {
+      this._lastPct = pct;
+      this.percentInd.textContent = `${pct}%`;
+      this.progressLine.style.setProperty('--r-progress', String(pct / 100));
+    }
     this.progressLine.hidden = !s.showProgress;
 
     this.root.classList.toggle('hud-hidden', !this.hudVisible);
     this.root.classList.toggle('hud-visible', this.hudVisible);
 
-    if (this.prevBtn) this.prevBtn.disabled = !(ch?.prev);
-    if (this.nextBtn) this.nextBtn.disabled = !(ch?.next);
+    const prevOff = !ch?.prev;
+    const nextOff = !ch?.next;
+    if (this.prevBtn && this.prevBtn.disabled !== prevOff) this.prevBtn.disabled = prevOff;
+    if (this.nextBtn && this.nextBtn.disabled !== nextOff) this.nextBtn.disabled = nextOff;
+  }
+
+  /** 滚动模式下让视口大小的纸纹层按滚动距离位移，替代整条 inner 的 background-attachment:local */
+  shiftPaper(scrollTop) {
+    if (!this.bg) return;
+    const loop = this.settings.bgImage === 'paper' && this.settings.bgDisplay === 'loop';
+    const y = loop ? -(Math.round(Number(scrollTop) || 0) % 200) : 0;
+    if (this._paperShift === y) return;
+    this._paperShift = y;
+    this.bg.style.backgroundPositionY = `${y}px`;
   }
 
   totalPct() {
@@ -848,35 +1032,56 @@ class ReaderApp {
      返回拦截
      ================================================================ */
 
+  /** 当前章节的规范 hash；守卫和历史项都写它，避免留下过期章节 URL */
+  currentHash() {
+    const suffix = this.queryMode ? `?mode=${this.queryMode}` : '';
+    const cid = this.activeChapterId || this.chapterId || '';
+    return `#/read/${encodeURIComponent(this.bookId)}/${encodeURIComponent(cid)}${suffix}`;
+  }
+
   pushGuard() {
     if (this.settings.backBlock === 'none') return;
     try {
-      history.pushState({ ...(history.state || {}), hachiReaderGuard: true }, '', location.href);
+      history.pushState({ ...(history.state || {}), hachiReaderGuard: true }, '', this.currentHash());
       this.guardPushed = true;
+      this.guardLen = history.length;
     } catch { /* 忽略 */ }
   }
 
   syncGuard() {
-    if (this.settings.backBlock !== 'none' && !this.guardPushed && !this.exiting) this.pushGuard();
+    if (this.settings.backBlock === 'none') {
+      // 改成「不拦截」后，后续 popstate 交给浏览器/路由处理
+      this.guardPushed = false;
+      return;
+    }
+    if (!this.guardPushed && !this.exiting) this.pushGuard();
   }
 
   onPopState() {
-    if (this.suppressPop) {
-      this.suppressPop = false;
-      return;
-    }
     if (this.exiting || this.destroyed) return;
     if (!this.guardPushed) return;
-    // 已经离开阅读器路由（真正的导航），交给 hashchange
-    if (!location.hash.startsWith('#/read/')) return;
+
+    if (this.settings.backBlock === 'none') {
+      this.guardPushed = false;
+      return;
+    }
+
+    // location.hash / app 内 navigate 在 Chrome 里也会派发 popstate。
+    // Navigation API 能直接告诉我们这是 push/replace（应用内跳转）而不是 traverse。
+    if (this.inAppNavAt && performance.now() - this.inAppNavAt < 800) {
+      this.guardPushed = false;
+      return;
+    }
+    // 旧浏览器兜底：应用内 push 会增加 history.length，真实回退不会。
+    // （注意 Chrome 历史上限 50 后不再增长，所以只作为兜底。）
+    if (this.guardLen && history.length > this.guardLen) {
+      this.guardPushed = false;
+      return;
+    }
 
     this.guardPushed = false;
 
     const mode = this.settings.backBlock;
-    if (mode === 'none') {
-      this.allowExit();
-      return;
-    }
     if (mode === 'blocked') {
       this.restoreGuard();
       this.toast('返回已锁住，点左上角退出');
@@ -895,22 +1100,25 @@ class ReaderApp {
   }
 
   restoreGuard() {
-    this.suppressPop = true;
+    if (this.destroyed) return;
     this.guardPushed = true;
-    try { history.forward(); } catch { /* 忽略 */ }
-    // 若 forward 没有产生 popstate（历史项被清理等），别让 suppressPop 永远卡住
-    setTimeout(() => { this.suppressPop = false; }, 700);
+    guardRestoreAt = performance.now();
+    // 用 pushState 回到当前章节，而不是 forward()：forward 依赖被弹出的前向项，
+    // 在 iOS 上经常拿不回来，而且会把过期章节 URL 留在栈里。
+    try {
+      history.pushState({ ...(history.state || {}), hachiReaderGuard: true }, '', this.currentHash());
+      this.guardLen = history.length;
+    } catch { /* 忽略 */ }
   }
 
   allowExit() {
+    if (this.exiting) return;
     this.exiting = true;
     this.flushAll();
-    try { history.back(); } catch { /* 忽略 */ }
-    // 直接打开阅读器（没有上一页）时兜底
-    setTimeout(() => {
-      if (this.destroyed) return;
-      this.ctx.navigate(`/book/${encodeURIComponent(this.bookId)}`);
-    }, 420);
+    // 不要再自己 replaceState：框架的 navigate(replace) 会先判断 hash 是否已变，
+    // 若这里先改掉 URL，navigate 就会提前 return，hashchange 不发、阅读器没人销毁，
+    // 结果就是 URL 到了详情页但阅读器还盖在上面。
+    this.ctx.navigate(`/book/${encodeURIComponent(this.bookId)}`, { replace: true });
   }
 
   exit() {
@@ -969,6 +1177,7 @@ class ReaderApp {
     clearTimeout(this.rulesTimer);
 
     removeEventListener('popstate', this.onPopStateBound);
+    window.navigation?.removeEventListener?.('navigate', this.onNavigateBound);
     document.removeEventListener('visibilitychange', this.onVisibilityBound);
     removeEventListener('pagehide', this.onPageHideBound);
     removeEventListener('keydown', this.onKeyDownBound);

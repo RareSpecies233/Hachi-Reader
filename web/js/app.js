@@ -15,6 +15,7 @@ import { api, imgUrl, unlock } from './core/api.js';
 import { store, applyTheme } from './core/store.js';
 import { h, clear, $ } from './core/dom.js';
 import { parseHash, match, navigate, back } from './core/router.js';
+import './core/ripple.js';
 
 const ROUTES = [
   { name: 'shelf',    pattern: ['shelf'],                load: () => import('./views/shelf.js'),    tab: 'shelf' },
@@ -34,6 +35,7 @@ const overlayEl = $('#overlay');
 let current = null;      // { name, module, params, query }
 let toastTimer = null;
 let gateOpen = false;
+let sessionEstablished = false; // 本次会话是否曾成功通过鉴权
 
 /* ---------------- Toast ---------------- */
 
@@ -159,8 +161,9 @@ function showGate(reason = '') {
 }
 
 addEventListener('hachi:unauthorized', () => {
-  // 已经被门禁挡住时不用重复弹
-  if (!gateOpen) showGate('令牌已失效，请重新输入');
+  if (gateOpen) return;
+  // 首次进入还没有会话时不该说"已失效"，那是误导
+  showGate(sessionEstablished ? '令牌已失效，请重新输入' : '');
 });
 
 /* ---------------- 路由 ---------------- */
@@ -240,13 +243,22 @@ async function boot() {
   // 先确认是否需要令牌，避免未授权时闪一下空书架
   if (!(await ensureAuth())) return;
 
-  // 自定义字体（需要登录态才能读接口）
-  import('./core/fonts.js').then((m) => m.initFonts()).catch(() => {});
+  // 自定义字体：必须在首次渲染前完成，否则设置页拿不到字体信息
+  // （只请求几百字节的元信息，字体文件本身由 CSS 按需加载）
+  try {
+    const fonts = await import('./core/fonts.js');
+    await fonts.initFonts();
+  } catch { /* 忽略 */ }
 
   addEventListener('hashchange', renderRoute);
 
-  // Service Worker（由 pwa.js 提供，缺失时静默跳过）
-  import('./pwa.js').then((m) => m.register?.()).catch(() => {});
+  // Service Worker：开发模式绝不注册，还要清掉旧的，
+  // 否则改 CSS/JS 刷新看到的永远是缓存里的旧版本。
+  if (store.health?.dev) {
+    teardownServiceWorker();
+  } else {
+    import('./pwa.js').then((m) => m.register?.()).catch(() => {});
+  }
 
   // 健康检查：拿服务端状态，失败不阻塞 UI
   api.health().then((hlt) => {
@@ -256,6 +268,18 @@ async function boot() {
 
   if (!location.hash) navigate('/shelf', { replace: true });
   await renderRoute();
+}
+
+/** 开发模式：注销所有 SW 并清空缓存，保证看到的是磁盘上的最新文件 */
+async function teardownServiceWorker() {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch {
+    /* 忽略：非安全上下文等情况下本来也没有 SW */
+  }
 }
 
 /** 处理令牌门禁。返回 false 表示已被挡住，不应继续渲染路由。 */
@@ -284,6 +308,7 @@ async function ensureAuth() {
   // 令牌是 HttpOnly Cookie，JS 读不到，用一次真实请求探测是否已解锁
   try {
     await api.shelves();
+    sessionEstablished = true;
     return true;
   } catch (e) {
     if (e.status === 401) { showGate(); return false; }

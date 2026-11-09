@@ -3,6 +3,7 @@
 在 iOS（以及任何现代浏览器）上舒适阅读 [轻小说文库 wenku8](https://www.wenku8.net) 的自托管阅读器。
 
 一个 Go 二进制：内嵌前端、服务端抓取与缓存、SQLite 持久化、可安装为 PWA。
+界面遵循 **Material Design 3**（三套主题），启动时打印 FIGlet 横幅与扫码二维码。
 
 ```
 ┌──────────────────────────────┐
@@ -86,17 +87,19 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 
 ## 界面
 
-| 书架 | 书籍详情 | 阅读器（滚动） |
-|---|---|---|
-| ![书架](docs/screenshots/shelf-light.png) | ![详情](docs/screenshots/book-light.png) | ![阅读器](docs/screenshots/reader-scroll-light.png) |
+Material Design 3 风格，浅色 / 护眼米黄 / 深色三套主题。
 
-| 阅读器（翻页 · 深色） | 阅读统计 | 探索（内置 Cookie 生效） |
+| 书架 | 书籍详情 | 探索 |
 |---|---|---|
-| ![翻页](docs/screenshots/reader-flip-dark.png) | ![统计](docs/screenshots/stats-dark.png) | ![探索](docs/screenshots/explore-real.png) |
+| ![书架](docs/screenshots/md3-shelf-light.png) | ![详情](docs/screenshots/md3-book-light.png) | ![探索](docs/screenshots/md3-explore-light.png) |
 
-| 访问令牌解锁页 | 令牌管理 |
-|---|---|
-| ![解锁](docs/screenshots/gate-dark.png) | ![令牌](docs/screenshots/settings-token.png) |
+| 阅读器（翻页动画中） | 阅读器（深色） | 设置 |
+|---|---|---|
+| ![翻页](docs/screenshots/reader-flip-slide-mid.png) | ![深色阅读](docs/screenshots/reader-scroll-dark.png) | ![设置](docs/screenshots/md3-settings-light.png) |
+
+| 统计 | 访问令牌 | 解锁页 |
+|---|---|---|
+| ![统计](docs/screenshots/md3-stats-light.png) | ![令牌](docs/screenshots/md3-settings-token-dark.png) | ![解锁](docs/screenshots/md3-gate-dark.png) |
 
 ## 功能
 

@@ -1,0 +1,99 @@
+Hachi Reader for Windows（32 位 / x86）
+==========================================
+版本 0.1.0
+
+这是一个自托管的轻小说阅读器：单文件程序，自带网页界面，
+手机扫描终端二维码即可进入，并可安装到 iPhone 主屏幕。
+
+本包适用于 32 位与 64 位 Windows（x86 程序在 x64 上同样可运行）。
+
+
+一、直接运行
+------------
+1. 把本目录放到一个可写的位置，例如 D:\HachiReader
+2. 双击 hachi.exe，或在命令提示符中执行：
+
+     hachi.exe -addr :8080 -data .\data
+
+3. 控制台会打印：
+     - FIGlet 大标题
+     - 访问令牌（256 位）
+     - 一张二维码（手机相机扫描即可带令牌进入）
+     - 本机地址 http://localhost:8080
+
+4. 浏览器打开 http://localhost:8080 即可使用。
+   数据保存在 .\data 目录：SQLite 数据库、字体、图片缓存、令牌文件。
+
+
+二、安装为开机自启服务（需管理员权限）
+--------------------------------------
+在 PowerShell 中（先 cd 到本目录）：
+
+    .\install-windows.ps1 -DataDir "C:\HachiReader\data" -Addr ":8080"
+
+卸载：
+
+    .\install-windows.ps1 -Uninstall
+
+脚本会优先使用 NSSM；没有安装 NSSM 时退回 sc.exe 注册服务。
+服务以 LocalSystem 运行，数据目录请确保有写权限。
+
+
+三、防火墙
+----------
+默认监听 8080。首次运行时 Windows 可能弹出防火墙提示，
+请至少允许“专用网络”。
+
+如果只想在局域网使用，不要放行公网；需要外网访问请走 HTTPS 反向代理。
+
+
+四、让 iPhone 安装为 PWA（重要）
+--------------------------------
+iOS 只在安全上下文（HTTPS）下注册 Service Worker，因此：
+
+  - 局域网 http://192.168.x.x:8080 可以正常阅读，但不能“添加到主屏幕”
+  - 想安装为 App，需要一个 HTTPS 地址：
+      a) 域名 + Caddy/Nginx 反向代理到本机 127.0.0.1:8080（推荐，自动证书）
+      b) Cloudflare Tunnel（无公网 IP 也能用）
+      c) Tailscale（内网穿透，证书可信）
+
+配置好 HTTPS 后，用 Safari 打开域名 → 分享 → 添加到主屏幕。
+
+部署细节见仓库 docs/deploy.md。
+
+
+五、访问令牌
+------------
+- 令牌在启动日志里，也保存在 data\token（纯文本）
+- 手机扫码进入后，令牌会写进 HttpOnly Cookie，之后不再需要输入
+- 忘记了：cat data\token，或在网页「设置 → 访问令牌」查看/重新生成
+- 想关闭鉴权：hachi.exe -no-auth（仅限可信局域网）
+
+
+六、常用参数
+------------
+  -addr  :8080          监听地址
+  -data  .\data         数据目录
+  -token  <令牌>         手动指定访问令牌
+  -no-auth              关闭令牌校验
+
+环境变量同样生效（详见 README.md）：
+  HACHI_ADDR / HACHI_DATA / HACHI_TOKEN / HACHI_PUBLIC_URL
+  HACHI_WK8_USER / HACHI_WK8_PASS / HACHI_PROXY
+  HACHI_NO_BUNDLED_COOKIE / HACHI_NO_AUTH
+
+
+七、常见问题
+------------
+- 端口被占用：换一个端口，例如 -addr :8081
+- 杀毒软件误报：本程序是纯 Go 编译的单文件，不写系统目录、不驻留后台
+- 控制台中文乱码：用 Windows Terminal，或先执行 chcp 65001
+- wenku8 探索/搜索不可用：默认使用内置公共 Cookie，可能失效；
+  可在网页「设置 → wenku8 账号」填自己的账号或 Cookie
+- 升级：停止服务 → 替换 hachi.exe → 启动服务，数据目录不受影响
+
+
+八、版权
+--------
+本程序不含任何书籍文件，内容实时来自 wenku8.net，仅做本地缓存加速。
+请支持正版，仅供个人学习与自用。

@@ -332,10 +332,13 @@ export function transformText(text, settings) {
    3. 排版 / 主题 / 边距
    ================================================================ */
 
+// 主题配色不再由阅读器自己维护：全部走外壳的 MD3 角色（--md-*）。
+// reader-root 自带 data-theme，base.css 的 [data-theme] 角色会在它上面生效，
+// 所以浅色 / 纸纹(sepia) / 深色都能与外壳保持一致。
 const THEMES = {
-  light: { bg: '#f6f1e7', ink: '#2a2521', muted: '#837767', line: '#e0d5c0', accent: '#b4552d' },
-  sepia: { bg: '#f2e7cd', ink: '#3d3226', muted: '#8a7a63', line: '#e0d2b4', accent: '#a8532f' },
-  dark: { bg: '#14120f', ink: '#ece5d8', muted: '#948878', line: '#2e2820', accent: '#e2794f' },
+  light: { paper: '.07' },
+  sepia: { paper: '.07' },
+  dark: { paper: '.05' },
 };
 
 export function effectiveTheme(settings) {
@@ -353,12 +356,13 @@ export function applyReaderTheme(root, settings) {
   root.dataset.bg = settings.bgImage || 'none';
   root.dataset.bgDisplay = settings.bgDisplay || 'fixed';
 
-  root.style.setProperty('--r-bg', settings.bgColor || t.bg);
-  root.style.setProperty('--r-ink', settings.textColor || t.ink);
-  root.style.setProperty('--r-muted', t.muted);
-  root.style.setProperty('--r-line', t.line);
-  root.style.setProperty('--r-accent', t.accent);
-  root.style.setProperty('--r-paper-opacity', name === 'dark' ? '.05' : '.07');
+  // 自定义背景/文字色优先；否则交给 MD3 角色，主题切换时自动重解析。
+  root.style.setProperty('--r-bg', settings.bgColor || 'var(--md-surface)');
+  root.style.setProperty('--r-ink', settings.textColor || 'var(--md-on-surface)');
+  root.style.setProperty('--r-muted', 'color-mix(in srgb, var(--md-on-surface-variant) 80%, var(--md-surface))');
+  root.style.setProperty('--r-line', 'var(--md-outline-variant)');
+  root.style.setProperty('--r-accent', 'var(--md-primary)');
+  root.style.setProperty('--r-paper-opacity', t.paper);
 }
 
 /** 字体相关变量；只改变量，不重建 DOM */

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -163,6 +164,11 @@ func run(cfg config.Config, noAuth bool) error {
 		}
 		log.Printf("   %s", scanURL)
 		log.Printf("   本机: %s", cfg.LocalURL(tok))
+		if strings.HasPrefix(scanURL, "https://") {
+			log.Printf("   提示：HTTPS 下可直接用 Safari「添加到主屏幕」安装为 PWA")
+		} else {
+			log.Printf("   提示：扫码即可阅读；「添加到主屏幕」需要 HTTPS 域名（设置 HACHI_PUBLIC_URL）")
+		}
 		log.Printf("")
 	}
 
