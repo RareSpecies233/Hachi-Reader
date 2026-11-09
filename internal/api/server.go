@@ -1,12 +1,14 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"hachi/internal/config"
@@ -24,6 +26,10 @@ type Server struct {
 	mux    *http.ServeMux
 	img    *imageCache
 	jobs   *jobRegistry
+
+	// 访问令牌可在运行时轮换，所以用读写锁保护
+	tokenMu sync.RWMutex
+	token   string
 }
 
 func New(cfg config.Config, st *store.Store, wk *wkk.Client, static fs.FS) *Server {
@@ -35,6 +41,7 @@ func New(cfg config.Config, st *store.Store, wk *wkk.Client, static fs.FS) *Serv
 		mux:    http.NewServeMux(),
 		img:    newImageCache(cfg.DataDir, cfg.AllowAnyImageHost),
 		jobs:   newJobRegistry(),
+		token:  cfg.Token,
 	}
 	s.routes()
 	return s
@@ -44,6 +51,10 @@ func (s *Server) routes() {
 	m := s.mux
 
 	m.HandleFunc("GET /api/health", s.handleHealth)
+	m.HandleFunc("POST /api/unlock", s.handleUnlock)
+	m.HandleFunc("POST /api/lock", s.handleLock)
+	m.HandleFunc("GET /api/token", s.handleGetToken)
+	m.HandleFunc("POST /api/token/rotate", s.handleRotateToken)
 
 	m.HandleFunc("GET /api/explore/tops", s.handleTops)
 	m.HandleFunc("GET /api/explore/list", s.handleAllList)
@@ -138,32 +149,46 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// auth 单用户 token 校验。未配置 HACHI_TOKEN 时不校验（仅建议局域网这样用）。
+func (s *Server) currentToken() string {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.token
+}
+
+func (s *Server) setToken(t string) {
+	s.tokenMu.Lock()
+	s.token = t
+	s.tokenMu.Unlock()
+}
+
+// auth 单用户令牌校验。未启用令牌（HACHI_NO_AUTH=1）时不校验。
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.Token == "" || r.URL.Path == "/api/health" {
+		want := s.currentToken()
+		if want == "" || r.URL.Path == "/api/health" || r.URL.Path == "/api/unlock" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/manifest.webmanifest" {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		token := ""
+		got := ""
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			token = strings.TrimPrefix(h, "Bearer ")
+			got = strings.TrimPrefix(h, "Bearer ")
 		}
-		if token == "" {
-			token = r.URL.Query().Get("token")
+		if got == "" {
+			got = r.URL.Query().Get("token")
 		}
-		if token == "" {
+		if got == "" {
 			if ck, err := r.Cookie("hachi_token"); err == nil {
-				token = ck.Value
+				got = ck.Value
 			}
 		}
-		if token != s.cfg.Token {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "访问令牌无效")
+		// 常量时间比较，避免通过响应时间逐位猜令牌
+		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "访问令牌无效或已过期")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -256,4 +281,40 @@ func (s *Server) writeUpstreamError(w http.ResponseWriter, err error) {
 		log.Printf("[upstream] %v", err)
 		writeError(w, http.StatusBadGateway, "upstream_error", "无法从 wenku8 获取数据："+err.Error())
 	}
+}
+
+// ---------------------------------------------------------------- 令牌 Cookie
+
+// isHTTPS 判断请求是否走 HTTPS（含反代）。
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// setAuthCookie 把令牌写进 HttpOnly Cookie：
+// JavaScript 读不到，XSS 偷不走；浏览器自动随请求发送，图片也不用再拼 ?token=。
+func setAuthCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "hachi_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   3600 * 24 * 365,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isHTTPS(r),
+	})
+}
+
+func clearAuthCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "hachi_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isHTTPS(r),
+	})
 }

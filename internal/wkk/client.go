@@ -58,6 +58,8 @@ type Client struct {
 	loggedIn bool
 	user     string
 	pass     string
+	cookie   string
+	source   CookieSource
 
 	sem  chan struct{} // 并发上限
 	gate sync.Mutex    // 相邻请求的最小间隔
@@ -74,7 +76,42 @@ type Options struct {
 	Timeout  time.Duration // 单请求超时
 	Hosts    []string
 	Profile  string // safari_ios | chrome | safari，默认 safari_ios
+
+	// Cookie 直接注入的 Cookie 头（如 "a=b; c=d"），用于账号登录不可用的情况。
+	Cookie string
+	// UseBundledCookie 在没有账号也没有自定义 Cookie 时，使用内置公共 Cookie。
+	UseBundledCookie bool
 }
+
+// bundledCookie 来自 LightNovelReader 项目内置的公共账号 Cookie。
+//
+// 来源：https://github.com/dmzz-yyhyy/LightNovelReader （Apache-2.0）
+//
+//	app/.../defaultplugin/wenku8/Wenku8Api.kt 的 wenku8Cookies()
+//
+// 作用：wenku8 的排行榜/分类/搜索页要求登录，未登录只返回"本站正式关闭"的提示页。
+// LNR 因此内置了一个公共账号的登录态，让所有用户开箱即用。
+//
+// 注意：这是第三方账号，可能随时失效或被限流；我们在它失效时会自动降级为
+// "需要登录"的提示，并允许用 HACHI_WK8_COOKIE 或自己的账号覆盖。
+const bundledCookie = "jieqiUserInfo=jieqiUserId%3D1125456%2CjieqiUserName%3Dyyhyy%2C" +
+	"jieqiUserGroup%3D3%2CjieqiUserVip%3D0%2C" +
+	"jieqiUserPassword%3Deb62861281462fd923fb99218735fef0%2C" +
+	"jieqiUserName_un%3Dyyhyy%2C" +
+	"jieqiUserHonor_un%3D%E4%B8%AD%E7%BA%A7%E4%BC%9A%E5%91%98%2C" +
+	"jieqiUserGroupName_un%3D%E6%99%AE%E9%80%9A%E4%BC%9A%E5%91%98%2C" +
+	"jieqiUserLogin%3D1739294499; " +
+	"jieqiVisitInfo=jieqiUserLogin%3D1739294499%2CjieqiUserId%3D1125456"
+
+// CookieSource 说明当前列表类请求靠什么通过登录校验。
+type CookieSource string
+
+const (
+	CookieNone    CookieSource = "none"
+	CookieAccount CookieSource = "account"
+	CookieCustom  CookieSource = "cookie"
+	CookieBundled CookieSource = "bundled"
+)
 
 func NewClient(opt Options) (*Client, error) {
 	hosts := opt.Hosts
@@ -110,13 +147,72 @@ func NewClient(opt Options) (*Client, error) {
 		return nil, fmt.Errorf("初始化抓取客户端失败: %w", err)
 	}
 
-	return &Client{
-		hosts: hosts,
-		tc:    tc,
-		user:  opt.Username,
-		pass:  opt.Password,
-		sem:   make(chan struct{}, 3),
-	}, nil
+	cookie := opt.Cookie
+	source := CookieNone
+	switch {
+	case opt.Username != "" && opt.Password != "":
+		source = CookieAccount // 登录成功后才有登录态
+	case cookie != "":
+		source = CookieCustom
+	case opt.UseBundledCookie:
+		cookie = bundledCookie
+		source = CookieBundled
+	}
+
+	c := &Client{
+		hosts:  hosts,
+		tc:     tc,
+		user:   opt.Username,
+		pass:   opt.Password,
+		cookie: cookie,
+		source: source,
+		sem:    make(chan struct{}, 3),
+	}
+	if cookie != "" {
+		c.seedCookies(cookie)
+	}
+	return c, nil
+}
+
+// seedCookies 把 "a=b; c=d" 形式的 Cookie 写进 tls-client 的 cookie jar。
+func (c *Client) seedCookies(header string) {
+	u, err := url.Parse(c.host())
+	if err != nil {
+		return
+	}
+	var cookies []*fhttp.Cookie
+	for _, pair := range strings.Split(header, ";") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok || k == "" {
+			continue
+		}
+		cookies = append(cookies, &fhttp.Cookie{Name: strings.TrimSpace(k), Value: strings.TrimSpace(v)})
+	}
+	if len(cookies) > 0 {
+		c.tc.SetCookies(u, cookies)
+	}
+}
+
+// CookieSource 返回当前列表访问所用的登录凭据来源。
+func (c *Client) CookieSource() CookieSource {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.source
+}
+
+// SetCookie 用自定义 Cookie 覆盖当前凭据。
+func (c *Client) SetCookie(header string) {
+	c.mu.Lock()
+	c.user, c.pass = "", ""
+	c.cookie = header
+	c.source = CookieCustom
+	c.loggedIn = header != ""
+	c.mu.Unlock()
+	c.seedCookies(header)
 }
 
 func (c *Client) host() string {

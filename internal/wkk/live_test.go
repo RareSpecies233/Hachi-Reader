@@ -84,3 +84,39 @@ func TestLiveLoginRequired(t *testing.T) {
 		t.Errorf("期望 ErrLoginRequired，实际: %v", err)
 	}
 }
+
+// 验证内置公共 Cookie 能让列表/搜索通过登录校验。
+func TestLiveBundledCookie(t *testing.T) {
+	if os.Getenv("HACHI_LIVE") == "" {
+		t.Skip("跳过联网测试（设置 HACHI_LIVE=1 启用）")
+	}
+	c, err := NewClient(Options{Timeout: 30 * time.Second, UseBundledCookie: true})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if c.CookieSource() != CookieBundled {
+		t.Fatalf("凭据来源 = %s, 期望 bundled", c.CookieSource())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	res, err := c.TopList(ctx, "allvisit", 1)
+	if err != nil {
+		t.Fatalf("TopList: %v", err)
+	}
+	if len(res.Items) == 0 {
+		t.Fatal("排行榜为空")
+	}
+	t.Logf("内置 Cookie 打开排行榜：%d 本，第一本《%s》", len(res.Items), res.Items[0].Title)
+
+	sres, err := c.Search(ctx, "文学少女", "articlename", 1)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if sres.Single != nil {
+		t.Logf("搜索命中单本：%s (id=%s)", sres.Single.Title, sres.Single.ID)
+	} else {
+		t.Logf("搜索结果：%d 本", len(sres.Items))
+	}
+}

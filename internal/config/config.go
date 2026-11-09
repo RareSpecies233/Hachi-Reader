@@ -27,23 +27,40 @@ type Config struct {
 
 	// Dev 为真时直接从磁盘 web/ 读取前端，改代码刷新即可，无需重新编译。
 	Dev bool
+
+	// WK8Cookie 直接注入的 wenku8 Cookie（优先于账号登录）
+	WK8Cookie string
+	// NoBundledCookie 关闭内置公共 Cookie 兜底
+	NoBundledCookie bool
+	// NoAuth 关闭访问令牌校验
+	NoAuth bool
+	// ExplicitPublicURL 扫码/分享用的外部地址（反代到 https 域名时设置）
+	ExplicitPublicURL string
 }
 
 func Load() Config {
 	c := Config{
-		Addr:    env("HACHI_ADDR", ":8080"),
-		DataDir: env("HACHI_DATA", "./data"),
-		Token:   os.Getenv("HACHI_TOKEN"),
-		WK8User: os.Getenv("HACHI_WK8_USER"),
-		WK8Pass: os.Getenv("HACHI_WK8_PASS"),
-		Proxy:   os.Getenv("HACHI_PROXY"),
-		Profile: env("HACHI_PROFILE", "safari_ios"),
-		Timeout: 25 * time.Second,
+		Addr:              env("HACHI_ADDR", ":8080"),
+		DataDir:           env("HACHI_DATA", "./data"),
+		Token:             os.Getenv("HACHI_TOKEN"),
+		WK8User:           os.Getenv("HACHI_WK8_USER"),
+		WK8Pass:           os.Getenv("HACHI_WK8_PASS"),
+		Proxy:             os.Getenv("HACHI_PROXY"),
+		Profile:           env("HACHI_PROFILE", "safari_ios"),
+		WK8Cookie:         os.Getenv("HACHI_WK8_COOKIE"),
+		ExplicitPublicURL: os.Getenv("HACHI_PUBLIC_URL"),
+		Timeout:           25 * time.Second,
 	}
 	if v := os.Getenv("HACHI_TIMEOUT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Timeout = time.Duration(n) * time.Second
 		}
+	}
+	if v := os.Getenv("HACHI_NO_BUNDLED_COOKIE"); v != "" {
+		c.NoBundledCookie = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
+	}
+	if v := os.Getenv("HACHI_NO_AUTH"); v != "" {
+		c.NoAuth = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
 	}
 	if v := os.Getenv("HACHI_DEV"); v != "" {
 		c.Dev = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
@@ -103,6 +120,38 @@ func SaveCredentials(dataDir string, c Credentials) error {
 // ClearCredentials 删除保存的账号。
 func ClearCredentials(dataDir string) error {
 	err := os.Remove(credentialsPath(dataDir))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------- wenku8 Cookie
+
+func cookiePath(dataDir string) string {
+	return filepath.Join(dataDir, "wenku8.cookie")
+}
+
+// LoadCookie 读取设置页保存的 Cookie。
+func LoadCookie(dataDir string) string {
+	b, err := os.ReadFile(cookiePath(dataDir))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// SaveCookie 保存 Cookie（0600）。
+func SaveCookie(dataDir, cookie string) error {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(cookiePath(dataDir), []byte(cookie+"\n"), 0o600)
+}
+
+// ClearCookie 删除保存的 Cookie。
+func ClearCookie(dataDir string) error {
+	err := os.Remove(cookiePath(dataDir))
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}

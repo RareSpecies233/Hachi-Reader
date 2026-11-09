@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -19,11 +20,13 @@ import (
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"version": Version,
+		"ok":            true,
+		"version":       Version,
+		"tokenRequired": s.currentToken() != "",
 		"wenku8": map[string]any{
-			"login": s.wk.IsLoggedIn(),
-			"host":  s.wk.Host(),
+			"login":  s.wk.IsLoggedIn(),
+			"host":   s.wk.Host(),
+			"cookie": string(s.wk.CookieSource()),
 		},
 	})
 }
@@ -35,11 +38,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		// Cookie 直填：账号登录被验证码挡住时可以直接粘贴浏览器里的 Cookie
+		Cookie string `json:"cookie"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "请求体格式错误")
 		return
 	}
+
+	if strings.TrimSpace(body.Cookie) != "" {
+		s.wk.SetCookie(strings.TrimSpace(body.Cookie))
+		_ = config.SaveCookie(s.cfg.DataDir, strings.TrimSpace(body.Cookie))
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "mode": "cookie"})
+		return
+	}
+
 	body.Username = strings.TrimSpace(body.Username)
 	if body.Username == "" || body.Password == "" {
 		writeError(w, http.StatusBadRequest, "bad_request", "用户名和密码都不能为空")
@@ -726,4 +739,71 @@ func (j *jobRegistry) end(key string) {
 	j.mu.Lock()
 	delete(j.live, key)
 	j.mu.Unlock()
+}
+
+// ---------------------------------------------------------------- 访问令牌
+
+// handleGetToken 返回当前令牌，供设置页展示与复制（该接口本身需要鉴权）。
+func (s *Server) handleGetToken(w http.ResponseWriter, r *http.Request) {
+	tok := s.currentToken()
+	if tok == "" {
+		writeError(w, http.StatusBadRequest, "token_disabled", "当前未启用访问令牌")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":    tok,
+		"required": true,
+	})
+}
+
+// handleRotateToken 重新生成 256 位令牌并落盘，旧令牌立即失效。
+func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
+	if s.currentToken() == "" {
+		writeError(w, http.StatusBadRequest, "token_disabled", "当前未启用访问令牌")
+		return
+	}
+	tok, err := config.GenerateToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "生成令牌失败")
+		return
+	}
+	if err := config.SaveToken(s.cfg.DataDir, tok); err != nil {
+		log.Printf("[token] 保存失败: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal", "令牌保存失败")
+		return
+	}
+	s.setToken(tok)
+	// 当前浏览器直接换用新 Cookie，避免把自己踢下线
+	setAuthCookie(w, r, tok)
+	log.Printf("[token] 访问令牌已重新生成")
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok})
+}
+
+// handleUnlock 校验令牌并写入 HttpOnly Cookie，之后整站免输入。
+func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
+	want := s.currentToken()
+	if want == "" {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "请求体格式错误")
+		return
+	}
+	got := strings.TrimSpace(body.Token)
+	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "令牌不正确")
+		return
+	}
+	setAuthCookie(w, r, want)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleLock 清除本机令牌 Cookie。
+func (s *Server) handleLock(w http.ResponseWriter, r *http.Request) {
+	clearAuthCookie(w, r)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

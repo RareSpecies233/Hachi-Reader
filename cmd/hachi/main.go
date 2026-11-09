@@ -17,7 +17,9 @@ import (
 
 	hachi "hachi"
 	"hachi/internal/api"
+	"hachi/internal/banner"
 	"hachi/internal/config"
+	"hachi/internal/qr"
 	"hachi/internal/store"
 	"hachi/internal/wkk"
 )
@@ -29,6 +31,8 @@ func main() {
 	var (
 		addr    = flag.String("addr", "", "监听地址，如 :8080")
 		dataDir = flag.String("data", "", "数据目录")
+		token   = flag.String("token", "", "访问令牌（留空则读取 data/token 或自动生成）")
+		noAuth  = flag.Bool("no-auth", false, "关闭访问令牌校验（仅限可信局域网）")
 	)
 	flag.Parse()
 
@@ -41,15 +45,36 @@ func main() {
 	if *dataDir != "" {
 		cfg.DataDir = *dataDir
 	}
+	if *token != "" {
+		cfg.Token = *token
+	}
 
-	if err := run(cfg); err != nil {
+	if err := run(cfg, *noAuth || cfg.NoAuth); err != nil {
 		log.Fatalf("启动失败: %v", err)
 	}
 }
 
-func run(cfg config.Config) error {
-	log.Printf("Hachi Reader %s", version)
+func run(cfg config.Config, noAuth bool) error {
+	banner.Print(version)
 	log.Printf("数据目录: %s", cfg.DataDir)
+
+	// 访问令牌：参数 > 环境变量 > data/token > 首次生成
+	tok, created, err := config.ResolveToken(cfg.DataDir, cfg.Token, noAuth)
+	if err != nil {
+		return fmt.Errorf("初始化访问令牌失败: %w", err)
+	}
+	cfg.Token = tok
+	if noAuth {
+		log.Printf("⚠️  已关闭访问令牌校验，任何能访问端口的人都可以使用")
+	} else {
+		if created {
+			log.Printf("✓ 已生成访问令牌（256 位），并保存到 %s", filepath.Join(cfg.DataDir, "token"))
+		}
+		log.Printf("")
+		log.Printf("   访问令牌: %s", tok)
+		log.Printf("   首次访问时粘贴到解锁页即可；也可用 ?token=… 直接进入")
+		log.Printf("")
+	}
 
 	st, err := store.Open(filepath.Join(cfg.DataDir, "hachi.db"))
 	if err != nil {
@@ -64,12 +89,19 @@ func run(cfg config.Config) error {
 		}
 	}
 
+	// Cookie 优先级：自定义 > 账号登录 > 内置公共 Cookie
+	if cfg.WK8Cookie == "" {
+		cfg.WK8Cookie = config.LoadCookie(cfg.DataDir)
+	}
+
 	wk, err := wkk.NewClient(wkk.Options{
-		Username: cfg.WK8User,
-		Password: cfg.WK8Pass,
-		Proxy:    cfg.Proxy,
-		Profile:  cfg.Profile,
-		Timeout:  cfg.Timeout,
+		Username:         cfg.WK8User,
+		Password:         cfg.WK8Pass,
+		Cookie:           cfg.WK8Cookie,
+		UseBundledCookie: !cfg.NoBundledCookie,
+		Proxy:            cfg.Proxy,
+		Profile:          cfg.Profile,
+		Timeout:          cfg.Timeout,
 	})
 	if err != nil {
 		return err
@@ -87,8 +119,15 @@ func run(cfg config.Config) error {
 			log.Printf("✓ 已登录 wenku8，探索与搜索可用")
 		}
 	} else {
-		log.Printf("· 未配置 wenku8 账号（HACHI_WK8_USER / HACHI_WK8_PASS）")
-		log.Printf("  探索与搜索需要登录，其余功能不受影响")
+		switch wk.CookieSource() {
+		case wkk.CookieCustom:
+			log.Printf("✓ 使用自定义 Cookie 访问 wenku8，探索与搜索可用")
+		case wkk.CookieBundled:
+			log.Printf("· 未配置账号，使用内置公共 Cookie 访问列表页")
+			log.Printf("  该 Cookie 来自 LightNovelReader 项目，可能随时失效；可用 HACHI_WK8_USER/PASS 覆盖")
+		default:
+			log.Printf("· 未配置 wenku8 账号，探索与搜索将不可用")
+		}
 	}
 
 	var static fs.FS
@@ -113,6 +152,18 @@ func run(cfg config.Config) error {
 	ln, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("监听 %s 失败: %w", cfg.Addr, err)
+	}
+
+	// 扫码直达：手机相机扫描后自动带上令牌，免去输入
+	if tok != "" {
+		scanURL := cfg.PublicURL(tok)
+		log.Printf("手机扫码直接进入（相机对准下方二维码）：")
+		if err := qr.Print(scanURL); err != nil {
+			log.Printf("（二维码生成失败：%v）", err)
+		}
+		log.Printf("   %s", scanURL)
+		log.Printf("   本机: %s", cfg.LocalURL(tok))
+		log.Printf("")
 	}
 
 	go func() {

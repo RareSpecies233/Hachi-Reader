@@ -11,7 +11,7 @@
 //   imgUrl(raw), refreshShell()
 // }
 
-import { api, imgUrl } from './core/api.js';
+import { api, imgUrl, unlock } from './core/api.js';
 import { store, applyTheme } from './core/store.js';
 import { h, clear, $ } from './core/dom.js';
 import { parseHash, match, navigate, back } from './core/router.js';
@@ -33,6 +33,7 @@ const overlayEl = $('#overlay');
 
 let current = null;      // { name, module, params, query }
 let toastTimer = null;
+let gateOpen = false;
 
 /* ---------------- Toast ---------------- */
 
@@ -101,6 +102,66 @@ export function confirmDialog(message, { okText = '确定', danger = false } = {
     activeSheet = el;
   });
 }
+
+/* ---------------- 访问令牌解锁 ---------------- */
+
+function showGate(reason = '') {
+  if (gateOpen) return;
+  gateOpen = true;
+
+  const input = h('input.input', {
+    type: 'password',
+    inputmode: 'text',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    placeholder: '粘贴访问令牌',
+    style: { marginTop: '14px', fontFamily: 'ui-monospace, monospace', letterSpacing: '.02em' },
+  });
+
+  const btn = h('button.btn.primary.block', { style: { marginTop: '12px' } }, '解锁');
+  const err = h('div.gate-err');
+
+  const submit = async () => {
+    const val = input.value.trim();
+    if (!val) { err.textContent = '请先粘贴令牌'; return; }
+    btn.disabled = true;
+    btn.textContent = '正在验证…';
+    err.textContent = '';
+    try {
+      await unlock(val);
+      location.reload();
+    } catch (e) {
+      err.textContent = e.status === 401 ? '令牌不正确，请重新从服务端日志复制' : (e.message || '验证失败');
+      btn.disabled = false;
+      btn.textContent = '解锁';
+    }
+  };
+
+  btn.addEventListener('click', submit);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+
+  const gate = h('div.gate', [
+    h('div.gate-card', [
+      h('div.gate-icon', h('div.gate-lock')),
+      h('h2.gate-title', '需要访问令牌'),
+      h('p.gate-desc', '这台 Hachi Reader 开启了访问保护。令牌在服务端启动日志里，也保存在数据目录的 token 文件中。'),
+      reason ? h('div.gate-err', reason) : null,
+      input,
+      btn,
+      err,
+      h('p.gate-hint', '首次部署可运行 ./hachi 查看日志中的「访问令牌」；也可以用 ?token=… 的链接直接进入。'),
+    ]),
+  ]);
+
+  gate.style.cursor = 'default';
+  document.body.appendChild(gate);
+  setTimeout(() => input.focus(), 120);
+}
+
+addEventListener('hachi:unauthorized', () => {
+  // 已经被门禁挡住时不用重复弹
+  if (!gateOpen) showGate('令牌已失效，请重新输入');
+});
 
 /* ---------------- 路由 ---------------- */
 
@@ -176,6 +237,9 @@ async function boot() {
   applyTheme(store.settings);
   setActiveTab('shelf');
 
+  // 先确认是否需要令牌，避免未授权时闪一下空书架
+  if (!(await ensureAuth())) return;
+
   addEventListener('hashchange', renderRoute);
 
   // Service Worker（由 pwa.js 提供，缺失时静默跳过）
@@ -189,6 +253,39 @@ async function boot() {
 
   if (!location.hash) navigate('/shelf', { replace: true });
   await renderRoute();
+}
+
+/** 处理令牌门禁。返回 false 表示已被挡住，不应继续渲染路由。 */
+async function ensureAuth() {
+  // 支持 ?token=… 一次性进入：换取 Cookie 后立刻从地址栏抹掉
+  const q = new URLSearchParams(location.search);
+  const qToken = q.get('token');
+  if (qToken) {
+    try { await unlock(qToken); } catch { /* 失败就让下面的 401 分支弹解锁页 */ }
+    q.delete('token');
+    const rest = q.toString();
+    history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : '') + location.hash);
+  }
+
+  let health;
+  try {
+    health = await api.health();
+  } catch {
+    return true; // 服务端不可用时让各页面自己报错，别卡在门禁
+  }
+  store.health = health;
+  store.emit('health', health);
+
+  if (!health.tokenRequired) return true;
+
+  // 令牌是 HttpOnly Cookie，JS 读不到，用一次真实请求探测是否已解锁
+  try {
+    await api.shelves();
+    return true;
+  } catch (e) {
+    if (e.status === 401) { showGate(); return false; }
+    return true; // 其它错误（如服务端抓取失败）不该拦在门禁
+  }
 }
 
 boot();

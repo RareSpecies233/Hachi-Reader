@@ -43,15 +43,33 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 |---|---|---|
 | `HACHI_ADDR` | `:8080` | 监听地址 |
 | `HACHI_DATA` | `./data` | 数据目录（SQLite、图片缓存、凭据） |
-| `HACHI_TOKEN` | 空 | 访问令牌。设置后所有 `/api` 需带 `Authorization: Bearer` 或 `?token=` |
+| `HACHI_TOKEN` | 自动生成 | 访问令牌。留空时读取 `data/token`，不存在则自动生成 256 位并打印 |
 | `HACHI_WK8_USER` | 空 | wenku8 用户名。**探索与搜索必需** |
 | `HACHI_WK8_PASS` | 空 | wenku8 密码 |
+| `HACHI_WK8_COOKIE` | 空 | 直接注入 Cookie，绕开账号登录（有验证码时用） |
+| `HACHI_NO_BUNDLED_COOKIE` | 空 | 设为 `1` 关闭内置公共 Cookie 兜底 |
+| `HACHI_NO_AUTH` | 空 | 设为 `1` 关闭令牌校验（仅限可信局域网） |
 | `HACHI_PROXY` | 空 | 抓取走的代理，如 `http://127.0.0.1:7890` |
 | `HACHI_PROFILE` | `safari_ios` | TLS 指纹：`safari_ios` / `safari` / `chrome` |
 | `HACHI_DEV` | 空 | 为 `1` 时前端从磁盘 `web/` 读取且不缓存 |
 | `HACHI_TIMEOUT` | `25` | 单次抓取超时（秒） |
 
-也可以在 App 的「设置 → wenku8 账号」里填账号，会保存到 `data/wenku8.json`（权限 0600）。**环境变量优先。**
+命令行参数：`-addr`、`-data`、`-token`、`-no-auth`。
+
+也可以在 App 的「设置 → wenku8 账号」里填账号或 Cookie，会保存到 `data/wenku8.json` / `data/wenku8.cookie`（权限 0600）。**环境变量与参数优先。**
+
+### 访问令牌
+
+首次启动会打印 FIGlet 横幅并生成一个 256 位令牌：
+
+```
+   访问令牌: 47lic_tAjkLIj3GEauH4nvNdRAEiHB6cWwb88KRTVoU
+```
+
+- 打开网页会看到解锁页，粘贴令牌即可；也可以用 `https://你的域名/?token=…` 直接进入（会自动从地址栏清除）。
+- 令牌在「设置 → 访问令牌」里可查看、复制、**重新生成**（旧令牌立即失效）。
+- 令牌保存在 `data/token`（0600），忘了就 `cat data/token`。
+- 想关掉：`-no-auth` 或 `HACHI_NO_AUTH=1`。
 
 ## 界面
 
@@ -59,9 +77,13 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 |---|---|---|
 | ![书架](docs/screenshots/shelf-light.png) | ![详情](docs/screenshots/book-light.png) | ![阅读器](docs/screenshots/reader-scroll-light.png) |
 
-| 阅读器（翻页 · 深色） | 阅读统计 | 探索（未登录引导） |
+| 阅读器（翻页 · 深色） | 阅读统计 | 探索（内置 Cookie 生效） |
 |---|---|---|
-| ![翻页](docs/screenshots/reader-flip-dark.png) | ![统计](docs/screenshots/stats-dark.png) | ![探索](docs/screenshots/explore-login.png) |
+| ![翻页](docs/screenshots/reader-flip-dark.png) | ![统计](docs/screenshots/stats-dark.png) | ![探索](docs/screenshots/explore-real.png) |
+
+| 访问令牌解锁页 | 令牌管理 |
+|---|---|
+| ![解锁](docs/screenshots/gate-dark.png) | ![令牌](docs/screenshots/settings-token.png) |
 
 ## 功能
 
@@ -102,11 +124,11 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 - 换成 iPhone Safari UA 后 `curl` 能通，但 **Go 原生 `net/http` 仍然 403**——即使 uTLS 伪装了 TLS 指纹也不行，因为 Cloudflare 还看 HTTP/2 帧指纹与请求头顺序；
 - 最终用 [`bogdanfinn/tls-client`](https://github.com/bogdanfinn/tls-client) 完整伪装 Safari iOS 的 TLS + HTTP2 指纹才稳定通过。
 
-细节见 [架构说明](docs/architecture.md)。
+细节见 [架构说明](docs/architecture.md)，PWA 侧方案见 [PWA 技术方案](docs/pwa.md)。
 
 ## 已知边界
 
-- **探索 / 搜索需要 wenku8 账号**：站点对列表页做了登录限制，未登录时返回"本站正式关闭"的提示页。不登录仍可读书籍详情、目录与正文。
+- **探索 / 搜索依赖登录态**：站点对列表页做了登录限制，未登录返回"本站正式关闭"的提示页。默认使用 LightNovelReader 项目内置的公共 Cookie 兜底（可能随时失效），可用自己的账号或 Cookie 覆盖。
 - **iOS 无法读取电量**，所以阅读器只提供时间/章节/进度指示器。
 - **屏幕常亮**依赖 Wake Lock API，iOS Safari 支持不稳定，不支持时静默降级。
 - **阅读器未在真机 iOS 上验证**（开发环境为 macOS + Chromium），安全区与手势冲突建议装机后重点回归。

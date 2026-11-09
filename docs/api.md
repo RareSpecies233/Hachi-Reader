@@ -160,3 +160,18 @@
 ### 认证补充
 
 `POST /api/login` 与 `POST /api/logout` 走同一套令牌校验（配置了 `HACHI_TOKEN` 时也要带）。登录成功后凭据写入 `data/wenku8.json`（0600），重启后自动恢复。
+
+## 访问令牌接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/token` | 返回当前令牌 `{ token, required }`（需鉴权） |
+| POST | `/api/token/rotate` | 重新生成 256 位令牌并落盘，旧令牌立即失效（需鉴权） |
+
+`GET /api/health` 是唯一免鉴权接口，返回 `tokenRequired` 布尔值，前端据此决定是否弹解锁页。
+
+令牌传递方式（任选其一）：`Authorization: Bearer <token>`、`?token=<token>`、Cookie `hachi_token`。图片代理无法带请求头，所以前端对 `/api/img` 用查询参数。
+
+### 登录接口补充
+
+`POST /api/login` 除 `{username,password}` 外，也接受 `{cookie}` 直接注入 Cookie 头（账号登录遇到验证码时使用），成功后保存到 `data/wenku8.cookie`。

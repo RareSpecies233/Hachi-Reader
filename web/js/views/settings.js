@@ -21,6 +21,8 @@ export default async function render(root, ctx) {
   const account = await sectionAccount(ctx);
   body.appendChild(account);
 
+  body.appendChild(await sectionToken(ctx));
+
   const cache = await sectionCache(ctx);
   body.appendChild(cache);
 
@@ -356,32 +358,54 @@ async function sectionAccount(ctx) {
   if (!health) {
     try { health = await ctx.api.health(); ctx.store.health = health; } catch { /* 忽略 */ }
   }
-  const logged = !!health?.wenku8?.login;
+  const w = health?.wenku8 || {};
+  const mode = w.cookie || 'none';
 
-  const status = h('div.row', [
-    h('div.grow', [
-      h('div.label', logged ? '已登录 wenku8' : '未登录 wenku8'),
-      h('div.desc', logged
-        ? '探索、排行榜、分类与搜索均已可用'
-        : '不登录也能读书籍详情、目录与正文；登录后解锁探索与搜索'),
+  let title = '未登录 wenku8';
+  let desc = '不登录也能读书籍详情、目录与正文；登录后解锁探索与搜索';
+  let dotColor = 'var(--muted)';
+
+  if (w.login) {
+    title = '已登录 wenku8';
+    desc = '账号已登录，探索、排行榜、分类与搜索均已可用';
+    dotColor = 'var(--ok)';
+  } else if (mode === 'bundled') {
+    title = '内置公共 Cookie 已启用';
+    desc = '开箱即可探索与搜索。该 Cookie 来自 LightNovelReader 项目，可能随时失效';
+    dotColor = 'var(--accent)';
+  } else if (mode === 'cookie') {
+    title = '使用自定义 Cookie';
+    desc = '探索与搜索可用';
+    dotColor = 'var(--ok)';
+  }
+
+  const rows = [
+    h('div.row', [
+      h('div.grow', [h('div.label', title), h('div.desc', desc)]),
+      h('span', { style: { color: dotColor } }, '●'),
     ]),
-    h('span', { style: { color: logged ? 'var(--ok)' : 'var(--muted)' } }, logged ? '●' : '○'),
-  ]);
+    h('div.row', {
+      onclick: () => openCookieSheet(ctx),
+    }, [
+      h('div.grow', [
+        h('div.label', '改用 Cookie 登录'),
+        h('div.desc', '账号登录被验证码挡住时，可直接粘贴浏览器里的 Cookie'),
+      ]),
+      h('span.chev', '›'),
+    ]),
+  ];
 
-  const rows = [status];
-
-  if (logged) {
+  if (w.login || mode === 'cookie') {
     rows.push(h('div.row', {
       onclick: async () => {
-        if (!(await ctx.confirm('退出登录会删除服务器上保存的账号，确定吗？'))) return;
+        if (!(await ctx.confirm('清除服务端保存的 wenku8 凭据？'))) return;
         try {
           await ctx.api.logout();
-          ctx.store.health = { ...health, wenku8: { ...health.wenku8, login: false } };
-          ctx.toast('已退出登录');
+          ctx.toast('已清除');
           location.reload();
-        } catch { ctx.toast('退出失败'); }
+        } catch { ctx.toast('操作失败'); }
       },
-    }, [h('div.grow', [h('div.label', '退出登录')]), h('span.chev', '›')]));
+    }, [h('div.grow', [h('div.label', '清除已保存的凭据')]), h('span.chev', '›')]));
   }
 
   const userEl = h('input.input', { placeholder: 'wenku8 用户名', autocomplete: 'username' });
@@ -400,11 +424,9 @@ async function sectionAccount(ctx) {
       try {
         await ctx.api.login(username, password);
         ctx.toast('登录成功，探索与搜索已解锁');
-        passEl.value = '';
-        ctx.navigate('/explore');
+        setTimeout(() => location.reload(), 600);
       } catch (e) {
         ctx.toast(e.message);
-      } finally {
         btn.disabled = false;
         btn.textContent = '登录';
       }
@@ -418,6 +440,122 @@ async function sectionAccount(ctx) {
   ]));
 
   return section('wenku8 账号', rows);
+}
+
+function openCookieSheet(ctx) {
+  const area = h('textarea.cookie-area', {
+    placeholder: '把浏览器里 wenku8 的 Cookie 整段粘进来，例如：\njieqiUserInfo=jieqiUserId%3D...; jieqiVisitInfo=...',
+  });
+  const tip = h('div.desc.small.muted', {
+    style: { marginTop: '10px', lineHeight: '1.7' },
+  }, '获取方法：电脑浏览器登录 wenku8 → F12 → Network → 刷新页面 → 点任意请求 → 复制 Request Headers 里的 Cookie。');
+
+  ctx.sheet({
+    title: '使用 Cookie 登录',
+    body: h('div', { style: { padding: '0 8px' } }, [area, tip]),
+    actions: [{
+      label: '保存并验证', primary: true,
+      onClick: async () => {
+        const v = area.value.trim();
+        if (!v) { ctx.toast('请先粘贴 Cookie'); return true; }
+        try {
+          await ctx.api.loginWithCookie(v);
+          ctx.toast('已保存，正在刷新');
+          setTimeout(() => location.reload(), 600);
+        } catch (e) {
+          ctx.toast(e.message || '保存失败');
+          return true;
+        }
+      },
+    }],
+  });
+}
+
+/* ---------------------------------------------------------------- 访问令牌 */
+
+async function sectionToken(ctx) {
+  const required = !!ctx.store.health?.tokenRequired;
+  if (!required) {
+    return section('访问令牌', [
+      h('div.row', [
+        h('div.grow', [
+          h('div.label', '未启用'),
+          h('div.desc', '服务端以 -no-auth 启动，任何能访问端口的人都可以使用'),
+        ]),
+      ]),
+    ]);
+  }
+
+  let token = '';
+  try {
+    token = (await ctx.api.getToken()).token || '';
+  } catch { /* 忽略 */ }
+
+  let revealed = false;
+  const tokenEl = h('div.token-box');
+
+  const paint = () => {
+    if (!token) { tokenEl.textContent = '读取失败'; return; }
+    tokenEl.textContent = revealed
+      ? token
+      : `${token.slice(0, 6)}${'•'.repeat(18)}${token.slice(-4)}`;
+  };
+  paint();
+
+  const copyBtn = h('button.btn.sm', {
+    onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(token);
+        ctx.toast('令牌已复制');
+      } catch {
+        ctx.toast('复制失败，请手动选择');
+      }
+    },
+  }, '复制');
+
+  const revealBtn = h('button.btn.sm', {
+    onclick: () => {
+      revealed = !revealed;
+      revealBtn.textContent = revealed ? '隐藏' : '显示';
+      paint();
+    },
+  }, '显示');
+
+  const rotateBtn = h('button.btn.sm.danger', {
+    onclick: async () => {
+      if (!(await ctx.confirm('重新生成后旧令牌立即失效，其他已登录设备需要重新输入。继续？'))) return;
+      try {
+        const res = await ctx.api.rotateToken();
+        token = res.token;
+        revealed = true;
+        revealBtn.textContent = '隐藏';
+        paint();
+        // 服务端已把新令牌写进 Cookie，本机不会掉线
+        ctx.toast('已生成新令牌，请妥善保存');
+      } catch (e) {
+        ctx.toast(e.message || '生成失败');
+      }
+    },
+  }, '重新生成');
+
+  const clearBtn = h('button.btn.sm.ghost', {
+    onclick: async () => {
+      if (!(await ctx.confirm('清除本机令牌？下次需要重新输入。'))) return;
+      try { await ctx.api.lock(); } catch { /* 忽略 */ }
+      location.reload();
+    },
+  }, '本机退出');
+
+  return section('访问令牌', [
+    h('div.row', [
+      h('div.grow', [
+        h('div.label', '256 位访问令牌'),
+        h('div.desc', '公网暴露时用它挡住陌生人；服务端日志与 data/token 里都有'),
+      ]),
+    ]),
+    tokenEl,
+    h('div.token-actions', [copyBtn, revealBtn, rotateBtn, clearBtn]),
+  ]);
 }
 
 /* ---------------------------------------------------------------- 缓存 */

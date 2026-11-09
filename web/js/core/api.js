@@ -38,6 +38,11 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     throw new ApiError('network', '网络连接失败，请检查服务器', 0);
   }
 
+  // 令牌失效/未提供：通知外壳弹出解锁页
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent('hachi:unauthorized'));
+  }
+
   if (res.status === 204) return null;
 
   const ct = res.headers.get('content-type') || '';
@@ -113,20 +118,36 @@ export const api = {
   cacheInfo: () => request('/api/cache'),
   clearCache: (id) => request(`/api/cache/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  // 访问令牌
+  unlock: (token) => request('/api/unlock', { method: 'POST', body: { token } }),
+  lock: () => request('/api/lock', { method: 'POST' }),
+  getToken: () => request('/api/token'),
+  rotateToken: () => request('/api/token/rotate', { method: 'POST' }),
+
   // 账号
   login: (username, password) =>
     request('/api/login', { method: 'POST', body: { username, password } }),
   logout: () => request('/api/logout', { method: 'POST' }),
+  loginWithCookie: (cookie) =>
+    request('/api/login', { method: 'POST', body: { cookie } }),
 
   // 设置
   settings: () => request('/api/settings'),
   saveSettings: (s) => request('/api/settings', { method: 'PUT', body: s }),
 };
 
-/** 图片走服务端代理；带 token 时补上查询参数 */
+/** 图片走服务端代理。令牌走 HttpOnly Cookie，浏览器会自动带上，无需拼参数。 */
 export function imgUrl(raw) {
   if (!raw) return '';
-  const q = new URLSearchParams({ u: raw });
-  if (token) q.set('token', token);
-  return `/api/img?${q}`;
+  return `/api/img?u=${encodeURIComponent(raw)}`;
+}
+
+/** 用令牌换取 HttpOnly Cookie。成功后由浏览器自动携带，刷新也不需要再输入。 */
+export function unlock(t) {
+  return request('/api/unlock', { method: 'POST', body: { token: t } });
+}
+
+/** 清除本机令牌 Cookie。 */
+export function lock() {
+  return request('/api/lock', { method: 'POST' });
 }

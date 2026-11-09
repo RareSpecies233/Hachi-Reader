@@ -213,3 +213,126 @@ input.range::-moz-range-thumb {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-grid > :last-child { grid-column: span 2; }
 }
+
+/* ---------- 访问令牌解锁页 ---------- */
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 22px calc(28px + var(--safe-b));
+  background: var(--paper);
+  animation: fade .2s ease;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+
+.gate-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+.gate-lock {
+  position: relative;
+  width: 46px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 2px solid var(--accent);
+}
+.gate-lock::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -20px;
+  width: 26px;
+  height: 26px;
+  transform: translateX(-50%);
+  border: 2px solid var(--accent);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+.gate-lock::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.gate-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.gate-desc {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.gate-err {
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+.gate-hint {
+  margin: 18px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  opacity: .85;
+}
+
+/* ---------- 令牌展示 ---------- */
+
+.token-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 14px 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--paper-3);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--ink-2);
+}
+.token-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 14px;
+  flex-wrap: wrap;
+}
+.token-actions .btn { flex: 1; min-width: 96px; }
+
+.cookie-area {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+.cookie-area:focus { border-color: var(--accent); }
