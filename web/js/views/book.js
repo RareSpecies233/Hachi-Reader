@@ -146,7 +146,7 @@ async function load(page) {
     page.appendChild(h('div.book-err', [
       h('div.book-topbar', [
         h('button.icon-btn', {
-          onclick: () => ctxRef.back('/explore'),
+          onclick: () => ctxRef.back('/shelf'),
           title: '返回',
           'aria-label': '返回',
         }, [ico(ICON.back)]),
@@ -193,7 +193,7 @@ function paint(page) {
   }
   hero.appendChild(h('div.hero-fade'));
   hero.appendChild(h('button.icon-btn.back-fab', {
-    onclick: () => ctxRef.back('/explore'),
+    onclick: () => ctxRef.back('/shelf'),
     title: '返回',
     'aria-label': '返回',
   }, [ico(ICON.back)]));

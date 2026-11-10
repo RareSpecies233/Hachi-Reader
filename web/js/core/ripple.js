@@ -13,7 +13,6 @@ const REDUCED = () => window.matchMedia('(prefers-reduced-motion: reduce)').matc
 const RIPPLE_SELECTOR = [
   '.btn',
   '.row',
-  '.tab',
   '.chip',
   '.chip-btn',
   '.shelf-tab',

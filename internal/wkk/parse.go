@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
@@ -473,11 +474,28 @@ func (c *Client) TagList(ctx context.Context, tag, v string, page int) (*ListPag
 func (c *Client) listPage(ctx context.Context, path string) (*ListPage, error) {
 	doc, err := c.fetchDoc(ctx, path)
 	if err != nil {
+		c.noteProbe(false, err.Error())
 		return nil, err
 	}
 	content := doc.Find("#content")
 	items := parseBookCards(content)
 	p, hasMore := pagination(doc, len(items))
+
+	// HTTP 200 + 空列表 ≠ "这里没书"。首页遇到空内容基本都是登录页/风控页
+	// 被当成正常页面解析了，必须明确报错，不能把"空"当成成功返回给前端。
+	if len(items) == 0 && p <= 1 {
+		var err error
+		if c.CookieSource() == CookieNone {
+			err = ErrLoginRequired
+		} else {
+			err = fmt.Errorf("%w：列表页没有内容（HTTP 200），可能是登录态失效或被上游拦截", ErrLoginStale)
+		}
+		c.markLoginInvalid()
+		c.noteProbe(false, err.Error())
+		return nil, err
+	}
+
+	c.noteProbe(true, fmt.Sprintf("列表第 %d 页 %d 条", p, len(items)))
 	return &ListPage{Items: items, Page: p, HasMore: hasMore}, nil
 }
 
@@ -506,7 +524,16 @@ func (c *Client) Search(ctx context.Context, keyword, searchType string, page in
 	if searchType != "author" {
 		searchType = "articlename"
 	}
-	if err := c.searchWait(ctx); err != nil {
+
+	// 锁必须覆盖"等待 + 真正发请求 + 收尾"，只锁等待会让并发搜索在
+	// 同一个 5 秒窗口里一起放行，触发站点的搜索频率限制。
+	c.searchGate.Lock()
+	defer func() {
+		// 以请求结束时间重新计时，保证下一次搜索距离本次"完成"至少 5 秒。
+		c.lastSearch = time.Now()
+		c.searchGate.Unlock()
+	}()
+	if err := c.waitSearchGap(ctx); err != nil {
 		return nil, err
 	}
 

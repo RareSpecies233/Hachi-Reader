@@ -21,7 +21,9 @@ const ROUTES = [
   { name: 'shelf',    pattern: ['shelf'],                load: () => import('./views/shelf.js'),    tab: 'shelf' },
   { name: 'explore',  pattern: ['explore'],              load: () => import('./views/explore.js'),  tab: 'explore' },
   { name: 'search',   pattern: ['search'],               load: () => import('./views/search.js'),   tab: 'explore' },
-  { name: 'book',     pattern: ['book', ':id'],          load: () => import('./views/book.js'),     tab: 'explore' },
+  // 从书架进详情就高亮书架，从探索/搜索进就高亮探索
+  { name: 'book',     pattern: ['book', ':id'],          load: () => import('./views/book.js'),
+    tab: (prev) => (prev === 'explore' ? 'explore' : 'shelf') },
   { name: 'read',     pattern: ['read', ':bookId', ':chapterId'], load: () => import('./reader/index.js'), fullscreen: true },
   { name: 'stats',    pattern: ['stats'],                load: () => import('./views/stats.js'),    tab: 'stats' },
   { name: 'settings', pattern: ['settings'],             load: () => import('./views/settings.js'), tab: 'settings' },
@@ -36,6 +38,7 @@ let current = null;      // { name, module, params, query }
 let toastTimer = null;
 let gateOpen = false;
 let sessionEstablished = false; // 本次会话是否曾成功通过鉴权
+let lastTab = 'shelf';           // 上一个非全屏路由的 tab，用于详情页归属判断
 
 /* ---------------- Toast ---------------- */
 
@@ -186,12 +189,9 @@ async function renderRoute() {
 
   const { route, params } = matched;
 
-  // 卸载上一个视图
-  try { current?.module?.destroy?.(); } catch (e) { console.error(e); }
-  closeSheet();
-  document.body.classList.toggle('reading', !!route.fullscreen);
-  if (!route.fullscreen) viewEl.scrollTop = 0;
-
+  // 关键：先把模块加载好，再换掉旧页面。
+  // 之前是"先 clear 再 await import"，动态 import 的那几十毫秒里屏幕是空的，
+  // 看起来就是整屏闪一下。
   let module;
   try {
     module = await route.load();
@@ -205,19 +205,29 @@ async function renderRoute() {
     return;
   }
 
+  // 卸载上一个视图
+  try { current?.module?.destroy?.(); } catch (e) { console.error(e); }
+  closeSheet();
+  document.body.classList.toggle('reading', !!route.fullscreen);
+
+  const tabName = typeof route.tab === 'function' ? route.tab(lastTab) : route.tab;
   current = { name: route.name, module, params, query };
-  setActiveTab(route.tab);
+  setActiveTab(tabName);
+  if (!route.fullscreen && tabName) lastTab = tabName;
 
   const ctx = {
     api, store, imgUrl, toast, sheet, confirm: confirmDialog, closeSheet,
     params, query,
     navigate, back,
-    refreshShell: () => setActiveTab(route.tab),
+    refreshShell: () => setActiveTab(tabName),
   };
 
   try {
     const root = route.fullscreen ? document.getElementById('reader-root') || makeReaderRoot() : viewEl;
-    if (!route.fullscreen) clear(viewEl);
+    if (!route.fullscreen) {
+      clear(viewEl);
+      viewEl.scrollTop = 0;
+    }
     await module.default(root, ctx);
   } catch (e) {
     console.error(`[view:${route.name}]`, e);
@@ -265,6 +275,13 @@ async function boot() {
     store.health = hlt;
     store.emit('health', hlt);
   }).catch(() => {});
+
+  // 预热视图模块：第一次切换时就不用等 import
+  setTimeout(() => {
+    for (const r of ROUTES) {
+      if (!r.fullscreen) r.load().catch(() => {});
+    }
+  }, 1200);
 
   if (!location.hash) navigate('/shelf', { replace: true });
   await renderRoute();

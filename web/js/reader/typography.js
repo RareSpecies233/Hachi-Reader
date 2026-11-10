@@ -376,7 +376,14 @@ export function applyTypography(root, settings) {
   root.style.setProperty('--r-lh', String(lh));
   root.style.setProperty('--r-ls', `${ls}px`);
   root.style.setProperty('--r-indent', `${indent}em`);
-  root.style.setProperty('--r-font', settings.fontFamily === 'sans' ? 'var(--font-ui)' : 'var(--font-read)');
+
+  // system / sans：直接用外壳的 UI 无衬线栈（iOS = PingFang SC），
+  // 这条栈里没有任何衬线字体，缺字时只会退到 sans-serif，不会出现
+  // 「一行里宋体/黑体混排」的逐字降级。
+  // serif / custom：走 --font-read（宋体栈 / 用户上传字体，由 core/fonts.js 覆盖）。
+  const fam = settings.fontFamily;
+  const useUi = fam === 'system' || fam === 'sans';
+  root.style.setProperty('--r-font', useUi ? 'var(--font-ui)' : 'var(--font-read)');
 }
 
 /** 计算四边留白（px）；autoMargin 打开时按视口宽度给舒适留白 */

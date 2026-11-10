@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,7 @@ func New(cfg config.Config, st *store.Store, wk *wkk.Client, static fs.FS) *Serv
 		token:  cfg.Token,
 	}
 	s.routes()
+	s.startWk8Probe()
 	return s
 }
 
@@ -55,6 +57,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/lock", s.handleLock)
 	m.HandleFunc("GET /api/token", s.handleGetToken)
 	m.HandleFunc("POST /api/token/rotate", s.handleRotateToken)
+
+	m.HandleFunc("GET /api/wk8/status", s.handleWk8Status)
 
 	m.HandleFunc("GET /api/explore/tops", s.handleTops)
 	m.HandleFunc("GET /api/explore/list", s.handleAllList)
@@ -299,6 +303,17 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 // writeUpstreamError 把抓取层错误映射成合适的 HTTP 状态与前端可读文案。
 func (s *Server) writeUpstreamError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, wkk.ErrRateLimited):
+		// Cloudflare 1015：明确告诉前端"是被限流"，不要混成 upstream_error。
+		// 带上 Retry-After，客户端/代理可以据此退避，避免继续加压。
+		if st := s.wk.Status(); st.BackoffSeconds > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(st.BackoffSeconds))
+		}
+		writeError(w, http.StatusTooManyRequests, "rate_limited",
+			"wenku8 当前限流（Cloudflare 1015），请稍后重试")
+	case errors.Is(err, wkk.ErrLoginStale):
+		writeError(w, http.StatusForbidden, "login_required",
+			"wenku8 登录态已失效（列表返回登录页或空内容），请在设置中更新账号或 Cookie")
 	case errors.Is(err, wkk.ErrLoginRequired):
 		writeError(w, http.StatusForbidden, "login_required",
 			"探索与搜索需要登录 wenku8 账号，请在设置中填写账号密码")

@@ -37,6 +37,23 @@ let currentApp = null;
 let guardRestoreAt = 0;
 const GUARD_RESTORE_WINDOW = 1200;
 
+// 主动退出（点 HUD 返回 / 二次确认退出）的显式标记。
+// 与「被拦截的回退」完全分开：退出期间任何回到同一个阅读路由的 hashchange 都
+// 不是用户想重新进阅读器，而是 history.go(-2) 在 iOS 上只退了一格后的中间态。
+// 这时直接 replace 到目标页，绝不再挂载一次阅读器（否则就是「看起来刷新了」）。
+let exitIntent = null;
+const EXIT_INTENT_WINDOW = 1500;
+
+function takeExitIntent(ctx) {
+  const p = exitIntent;
+  if (!p) return null;
+  if (Date.now() > p.until) { exitIntent = null; return null; }
+  if (String(ctx.params?.bookId) !== String(p.bookId)) return null;
+  if (readerHashParts()[0] !== 'read') return null;
+  exitIntent = null;
+  return p;
+}
+
 function readerHashParts(hash = location.hash) {
   const raw = String(hash || '').replace(/^#/, '').split('?')[0];
   return raw.split('/').filter(Boolean).map((s) => {
@@ -60,6 +77,19 @@ function isGuardRestoreFor(app, bookId, chapterId) {
 }
 
 export default async function render(root, ctx) {
+  // 主动退出的历史穿越（iOS 上 go(-2) 可能只退一格）：不要再挂载阅读器，
+  // 直接把当前项 replace 成目标页。这是「点返回」与「被拦截回退」的分界线。
+  const exit = takeExitIntent(ctx);
+  if (exit) {
+    try { root?.remove?.(); } catch { /* 忽略 */ }
+    if (currentApp) {
+      currentApp.destroy();
+      currentApp = null;
+    }
+    ctx.navigate(exit.target, { replace: true });
+    return;
+  }
+
   // 守卫恢复引起的同章节 hashchange：保留当前实例，不重新拉章节、不闪屏。
   if (isGuardRestoreFor(currentApp, ctx.params?.bookId, ctx.params?.chapterId)) return;
   if (currentApp) currentApp.destroy();
@@ -76,6 +106,7 @@ export default async function render(root, ctx) {
 
   const app = new ReaderApp(root, ctx);
   currentApp = app;
+
   await app.init();
 }
 
@@ -130,9 +161,10 @@ class ReaderApp {
     this._hudGuardUntil = 0;
     this._suppressClickUntil = 0;
     this._paperShift = null;
-    this._lastPct = null;
+    this._lastPercentLabel = null;
     this._lastChapterTitle = null;
     this._lastPageLabel = null;
+    this.exitTimer = 0;
 
     this.session = null;
     this.saveTimer = 0;
@@ -250,10 +282,13 @@ class ReaderApp {
     this.settingsBtn = this.navButton(ICON.gear, '设置', () => openSettingsSheet(this));
     this.nextBtn = this.navButton(ICON.next, '下一章', () => this.goAdjacent(1));
 
+    // 底部两层：导航行（可随沉浸收起）+ 状态条（时间/章节/进度）。
+    // 状态条必须独立于 .reader-hud，否则 HUD 收起时指示器会跟着一起消失。
     this.bottomHud = h('div.reader-hud.reader-hud-bottom', [
-      this.indicators,
       h('div.r-nav', [this.prevBtn, this.chaptersBtn, this.settingsBtn, this.nextBtn]),
     ]);
+    this.statusBar = h('div.reader-status', [this.progressLine, this.indicators]);
+    this.bottomDock = h('div.reader-bottom-dock', [this.bottomHud, this.statusBar]);
 
     // 唤起 HUD 的同一拍触摸不要顺带点到按钮
     for (const hud of [this.topHud, this.bottomHud]) {
@@ -279,8 +314,8 @@ class ReaderApp {
     ]);
 
     this.root.append(
-      this.bg, this.stage, this.progressLine,
-      this.topHud, this.bottomHud,
+      this.bg, this.stage,
+      this.topHud, this.bottomDock,
       this.loadingBar, this.errorEl, this.lightbox, this.bootEl,
     );
     this.updateHud();
@@ -472,14 +507,14 @@ class ReaderApp {
     });
   }
 
-  /** 顶部 / 底部 HUD 的实际高度（含安全区）；缓存到 resize，避免每次点击读布局 */
+  /** 顶部 HUD / 底部停靠区（导航 + 状态条）的实际高度；缓存到 resize，避免每次点击读布局 */
   hudBands() {
     const vw = this.root.clientWidth || innerWidth;
     if (this._bands && this._bands.vw === vw) return this._bands;
     this._bands = {
       vw,
       top: (this.topHud?.offsetHeight || 0) + 2,
-      bottom: (this.bottomHud?.offsetHeight || 0) + 2,
+      bottom: (this.bottomDock?.offsetHeight || 0) + 2,
     };
     return this._bands;
   }
@@ -509,8 +544,8 @@ class ReaderApp {
       this.toggleHud();
       return;
     }
-    if (x < w / 3) this.mode?.prevPage?.();
-    else if (x > (w * 2) / 3) this.mode?.nextPage?.();
+    // 用户要求：左右两侧都向后翻，上一页只靠滑动/菜单完成。
+    if (x < w / 3 || x > (w * 2) / 3) this.mode?.nextPage?.();
     else this.toggleHud();
   }
 
@@ -766,11 +801,20 @@ class ReaderApp {
       this.chapterTitleEl.textContent = chTitle;
     }
 
-    const pct = this.totalPct();
-    const page = s.showProgress ? (this.mode?.pageLabel?.() || '') : '';
+    // HUD 展开时强制显示全部指示器（不受三个开关影响）；
+    // 沉浸（HUD 收起）时按设置显示。状态条独立于 HUD，不会跟着淡出。
+    const force = this.hudVisible;
+    const showTime = force || !!s.showTime;
+    const showChapter = force || !!s.showChapter;
+    const showProgress = force || !!s.showProgress;
 
-    this.timeEl.hidden = !s.showTime;
-    this.chapterInd.hidden = !s.showChapter || !chTitle;
+    const vol = this.volumeProgress();
+    const pct = vol ? vol.pct : this.totalPct();
+    const pctLabel = vol && vol.count > 1 ? `第 ${vol.no} 卷 · ${pct}%` : `${pct}%`;
+    const page = showProgress ? (this.mode?.pageLabel?.() || '') : '';
+
+    this.timeEl.hidden = !showTime;
+    this.chapterInd.hidden = !showChapter || !chTitle;
 
     const indTitle = chTitle;
     if (indTitle !== this._lastChapterTitle) {
@@ -778,19 +822,30 @@ class ReaderApp {
       this.chapterInd.textContent = indTitle;
     }
 
-    this.pageInd.hidden = !page;
+    this.pageInd.hidden = !showProgress || !page;
     if (page !== this._lastPageLabel) {
       this._lastPageLabel = page;
       this.pageInd.textContent = page;
     }
 
-    this.percentInd.hidden = !s.showProgress;
-    if (pct !== this._lastPct) {
-      this._lastPct = pct;
-      this.percentInd.textContent = `${pct}%`;
+    this.percentInd.hidden = !showProgress;
+    if (pctLabel !== this._lastPercentLabel) {
+      this._lastPercentLabel = pctLabel;
+      this.percentInd.textContent = pctLabel;
+      this.percentInd.title = vol
+        ? `本卷读完 ${pct}%（第 ${vol.no} / ${vol.count} 卷）`
+        : `全书 ${pct}%`;
       this.progressLine.style.setProperty('--r-progress', String(pct / 100));
     }
-    this.progressLine.hidden = !s.showProgress;
+    this.progressLine.hidden = !showProgress;
+
+    // 三个开关全关且 HUD 收起时，状态条没有内容，别留一条空底栏
+    const statusEmpty = this.timeEl.hidden && this.chapterInd.hidden
+      && this.pageInd.hidden && this.percentInd.hidden;
+    if (this.statusBar && this.statusBar.hidden !== statusEmpty) {
+      this.statusBar.hidden = statusEmpty;
+      this._bands = null;
+    }
 
     this.root.classList.toggle('hud-hidden', !this.hudVisible);
     this.root.classList.toggle('hud-visible', this.hudVisible);
@@ -811,6 +866,27 @@ class ReaderApp {
     this.bg.style.backgroundPositionY = `${y}px`;
   }
 
+  /** 单卷进度：卷内章节位置 + 章内比例。找不到卷信息时返回 null（回退到整本）。 */
+  volumeProgress() {
+    const ch = this.activeChapter || this.chapter;
+    if (!ch || !Array.isArray(this.volumes) || !this.volumes.length) return null;
+    const cid = String(ch.id);
+    for (let i = 0; i < this.volumes.length; i++) {
+      const list = this.volumes[i]?.chapters || [];
+      const at = list.findIndex((c) => String(c?.id) === cid);
+      if (at < 0) continue;
+      const size = Math.max(1, list.length);
+      const p = (at + this.progress) / size;
+      return {
+        no: i + 1,
+        count: this.volumes.length,
+        pct: Math.max(0, Math.min(100, Math.round(p * 100))),
+      };
+    }
+    return null;
+  }
+
+  /** 整本进度：仅在没有卷信息时兜底 */
   totalPct() {
     const ch = this.activeChapter || this.chapter;
     if (!ch) return 0;
@@ -824,6 +900,9 @@ class ReaderApp {
     this.hudVisible = typeof show === 'boolean' ? show : !this.hudVisible;
     this.root.classList.toggle('hud-hidden', !this.hudVisible);
     this.root.classList.toggle('hud-visible', this.hudVisible);
+    // 指示器是否强制显示取决于 HUD 状态，收起/展开后必须重算一次
+    this._bands = null;
+    this.updateHud();
   }
 
   startClock() {
@@ -1100,7 +1179,7 @@ class ReaderApp {
   }
 
   restoreGuard() {
-    if (this.destroyed) return;
+    if (this.destroyed || this.exiting) return;
     this.guardPushed = true;
     guardRestoreAt = performance.now();
     // 用 pushState 回到当前章节，而不是 forward()：forward 依赖被弹出的前向项，
@@ -1111,32 +1190,72 @@ class ReaderApp {
     } catch { /* 忽略 */ }
   }
 
+  /** 系统返回的二次确认退出：当前已经在「阅读项」上，直接 replace 成详情页。 */
   allowExit() {
     if (this.exiting) return;
     this.exiting = true;
     this.flushAll();
+
+    const target = `/book/${encodeURIComponent(this.bookId)}`;
+    exitIntent = {
+      bookId: this.bookId,
+      chapterId: this.activeChapterId || this.chapterId,
+      target,
+      until: Date.now() + EXIT_INTENT_WINDOW,
+    };
+    this.guardPushed = false;
     // 不要再自己 replaceState：框架的 navigate(replace) 会先判断 hash 是否已变，
     // 若这里先改掉 URL，navigate 就会提前 return，hashchange 不发、阅读器没人销毁，
     // 结果就是 URL 到了详情页但阅读器还盖在上面。
-    this.ctx.navigate(`/book/${encodeURIComponent(this.bookId)}`, { replace: true });
+    this.leaveTo(target);
   }
 
+  /**
+   * HUD 左上角返回：明确的「主动退出」，与 popstate 拦截完全分开。
+   * 优先用 history 退回到进入阅读器之前的那一页；iOS 上 go(-2) 不可靠，
+   * 所以同时挂一个兜底定时器 + 模块级 exitIntent，保证一定会离开。
+   */
   exit() {
     if (this.exiting) return;
     this.exiting = true;
     this.flushAll();
 
-    if (this.guardPushed) {
-      // 当前历史项是 guard，跳过 guard 与阅读项，回到进入前的页面
-      try { history.go(-2); } catch { /* 忽略 */ }
+    const target = `/book/${encodeURIComponent(this.bookId)}`;
+    exitIntent = {
+      bookId: this.bookId,
+      chapterId: this.activeChapterId || this.chapterId,
+      target,
+      until: Date.now() + EXIT_INTENT_WINDOW,
+    };
+
+    const hadGuard = this.guardPushed;
+    this.guardPushed = false;     // 主动退出期间绝不再补哨兵
+    clearTimeout(this.exitTimer);
+
+    if (hadGuard) {
+      // 跳过「守卫项 + 阅读项」，回到进入前的那一页
+      if (history.length > 2) {
+        try { history.go(-2); } catch { /* 忽略 */ }
+      } else {
+        this.leaveTo(target);
+      }
+    } else if (history.length > 1) {
+      try { history.back(); } catch { /* 忽略 */ }
     } else {
-      try { this.ctx.back(); } catch { /* 忽略 */ }
+      this.leaveTo(target);
     }
 
-    setTimeout(() => {
+    // iOS Safari 有时会吞掉 |delta| > 1 的历史遍历：400ms 后还在阅读器就强制离开。
+    this.exitTimer = setTimeout(() => {
       if (this.destroyed) return;
-      this.ctx.navigate(`/book/${encodeURIComponent(this.bookId)}`);
+      this.leaveTo(target);
     }, 460);
+  }
+
+  leaveTo(target) {
+    try {
+      this.ctx.navigate(target, { replace: true });
+    } catch { /* 忽略 */ }
   }
 
   /* ================================================================
@@ -1175,6 +1294,7 @@ class ReaderApp {
     clearTimeout(this.prefetchTimer);
     clearTimeout(this.timeTimer);
     clearTimeout(this.rulesTimer);
+    clearTimeout(this.exitTimer);
 
     removeEventListener('popstate', this.onPopStateBound);
     window.navigation?.removeEventListener?.('navigate', this.onNavigateBound);

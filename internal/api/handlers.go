@@ -19,15 +19,32 @@ import (
 // ---------------------------------------------------------------- 健康检查
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	st := s.wk.Status()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"version":       Version,
 		"tokenRequired": s.currentToken() != "",
 		"dev":           s.cfg.Dev,
+		// 保留原有 login/host/cookie 字段（向后兼容），其余为新增的可观测性信息。
 		"wenku8": map[string]any{
-			"login":  s.wk.IsLoggedIn(),
-			"host":   s.wk.Host(),
-			"cookie": string(s.wk.CookieSource()),
+			"login":             st.LoggedIn,
+			"host":              st.Host,
+			"cookie":            string(st.Source),
+			"hosts":             st.Hosts,
+			"cookieHosts":       st.CookieHosts,
+			"requests":          st.Requests,
+			"failed":            st.Failed,
+			"rejected":          st.Rejected,
+			"successRate":       st.SuccessRate,
+			"recentSuccessRate": st.RecentSuccessRate,
+			"lastError":         st.LastError,
+			"lastErrorAt":       st.LastErrorAt,
+			"blocked":           st.Blocked,
+			"blockedUntil":      st.BlockedUntil,
+			"backoffSeconds":    st.BackoffSeconds,
+			"lastProbeAt":       st.LastProbeAt,
+			"lastProbeOk":       st.LastProbeOK,
+			"lastProbeNote":     st.LastProbeNote,
 		},
 	})
 }

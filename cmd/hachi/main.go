@@ -117,14 +117,14 @@ func run(cfg config.Config, noAuth bool) error {
 			log.Printf("⚠️  wenku8 登录失败：%v", err)
 			log.Printf("   探索与搜索将不可用；书籍详情与正文仍可离线读取。")
 		} else {
-			log.Printf("✓ 已登录 wenku8，探索与搜索可用")
+			log.Printf("· wenku8 登录成功（列表可用性由启动探测确认）")
 		}
 	} else {
 		switch wk.CookieSource() {
 		case wkk.CookieCustom:
-			log.Printf("✓ 使用自定义 Cookie 访问 wenku8，探索与搜索可用")
+			log.Printf("· 将使用自定义 Cookie 访问 wenku8（列表可用性由启动探测确认）")
 		case wkk.CookieBundled:
-			log.Printf("· 未配置账号，使用内置公共 Cookie 访问列表页")
+			log.Printf("· 未配置账号，将使用内置公共 Cookie 访问列表页")
 			log.Printf("  该 Cookie 来自 LightNovelReader 项目，可能随时失效；可用 HACHI_WK8_USER/PASS 覆盖")
 		default:
 			log.Printf("· 未配置 wenku8 账号，探索与搜索将不可用")

@@ -442,6 +442,9 @@ body.reading { background: var(--md-surface); }
 .tab.active::before { background: var(--md-primary-container); }
 .tab.active svg { color: var(--md-on-primary-container); }
 .tab:active { transform: none; }
+/* 按下反馈限制在胶囊内，避免整格水波纹比指示器大一圈 */
+.tab:active::before { background: color-mix(in srgb, var(--md-on-surface) 12%, transparent); }
+.tab.active:active::before { background: color-mix(in srgb, var(--md-on-primary-container) 16%, var(--md-primary-container)); }
 
 /* ------------------------------------------------------------
    7. 顶部 App Bar
@@ -715,8 +718,6 @@ body.reading .toast { bottom: calc(24px + var(--safe-b)); }
   background: var(--md-scrim);
   z-index: 60;
   animation: fade var(--md-motion-fast) ease;
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
 }
 @keyframes fade { from { opacity: 0; } }
 

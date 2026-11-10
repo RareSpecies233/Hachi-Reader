@@ -13,13 +13,19 @@ package wkk
 //   - 全站 GBK 编码。
 //   - 搜索 / 排行 / 标签 / 分类列表页未登录会返回"本站正式关闭"登录页。
 //   - 书籍详情、目录、正文匿名可读。
+//   - www.wenku8.cc 对所有页面都 301 回 www.wenku8.net；登录态只存在于 .net。
+//   - 站点/Cloudflare 对同一出口 IP 有短窗口限流，超限返回 429 + "error code: 1015"
+//     （Retry-After 通常为 10 秒）。这类限流是 zone 级别的，换域名重试只会
+//     让请求数翻倍，所以必须退避而不是轮换。
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,9 +39,13 @@ import (
 
 var (
 	ErrLoginRequired = errors.New("需要登录 wenku8 账号")
-	ErrBlocked       = errors.New("wenku8 拒绝了请求（可能触发了防护）")
-	ErrNotFound      = errors.New("wenku8 上找不到该内容")
-	ErrCopyright     = errors.New("该书因版权原因无法获取")
+	// ErrLoginStale 表示配置了凭据，但站点返回登录页 / 空列表，说明这份登录态已经失效。
+	// 它和 ErrLoginRequired 的区别是：前者是"没配"，后者是"配了但坏了"。
+	ErrLoginStale  = errors.New("wenku8 登录态已失效")
+	ErrBlocked     = errors.New("wenku8 拒绝了请求（可能触发了防护）")
+	ErrRateLimited = errors.New("wenku8 当前限流")
+	ErrNotFound    = errors.New("wenku8 上找不到该内容")
+	ErrCopyright   = errors.New("该书因版权原因无法获取")
 )
 
 const (
@@ -43,30 +53,93 @@ const (
 		"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
 	// 站点把"两次搜索间隔不得少于 5 秒"写死在提示里，客户端至少守这个底线。
-	searchGap = 5200 * time.Millisecond
+	defaultSearchGap = 5200 * time.Millisecond
 	// 普通页面之间的最小间隔，避免被风控盯上。
-	pageGap = 120 * time.Millisecond
+	defaultPageGap = 120 * time.Millisecond
+
+	// 429 没有 Retry-After 时的兜底等待。
+	defaultRetryAfter = 10 * time.Second
+	// 退避上限：再久就该让用户明确看到"被限流"，而不是无限挂住。
+	maxBackoff = 60 * time.Second
+	// 最近请求窗口大小，用于计算"最近 N 次成功率"。
+	recentWindow = 20
 )
+
+// Status 是给 /api/wk8/status 与 /api/health 用的可观测性快照。
+type Status struct {
+	Source CookieSource `json:"source"`
+	Host   string       `json:"host"`
+	Hosts  []string     `json:"hosts"`
+	// CookieHosts 列出 cookie jar 里真正有登录 Cookie 的 host。
+	// 修复前这里只会有一个（seed 只对当前 host 生效）。
+	CookieHosts []string `json:"cookieHosts"`
+	LoggedIn    bool     `json:"login"`
+
+	Requests int `json:"requests"`
+	Success  int `json:"success"`
+	Failed   int `json:"failed"`
+	// Rejected 是退避期内被本地快速拒绝的请求数，不计入 Requests，
+	// 这样"上游成功率"和"用户被挡了多少次"可以分开看。
+	Rejected    int     `json:"rejected"`
+	SuccessRate float64 `json:"successRate"`
+	// RecentSuccessRate 是最近 recentWindow 次请求的成功率，更能反映"此刻"的状态。
+	RecentSuccessRate float64 `json:"recentSuccessRate"`
+
+	LastError   string `json:"lastError,omitempty"`
+	LastErrorAt string `json:"lastErrorAt,omitempty"`
+
+	Blocked        bool   `json:"blocked"`
+	BlockedUntil   string `json:"blockedUntil,omitempty"`
+	BackoffSeconds int    `json:"backoffSeconds"`
+	Strikes        int    `json:"strikes"`
+
+	LastProbeAt   string `json:"lastProbeAt,omitempty"`
+	LastProbeOK   bool   `json:"lastProbeOk"`
+	LastProbeNote string `json:"lastProbeNote,omitempty"`
+}
+
+type requestRecord struct {
+	ok   bool
+	kind string
+}
 
 // Client 是并发安全的。
 type Client struct {
 	hosts []string
 	tc    tlsclient.HttpClient
 
-	mu       sync.RWMutex
-	hostIdx  int
-	loggedIn bool
-	user     string
-	pass     string
-	cookie   string
-	source   CookieSource
+	mu           sync.RWMutex
+	hostIdx      int
+	loggedIn     bool
+	user         string
+	pass         string
+	cookie       string // 当前生效的 Cookie 头（account 模式为空）
+	cookieHeader string // 与 cookie 相同，保留语义化名字便于阅读
+	source       CookieSource
 
-	sem  chan struct{} // 并发上限
-	gate sync.Mutex    // 相邻请求的最小间隔
-	last time.Time
+	sem     chan struct{} // 并发上限
+	gate    sync.Mutex    // 相邻请求的最小间隔
+	last    time.Time
+	pageGap time.Duration
 
 	searchGate sync.Mutex
 	lastSearch time.Time
+	searchGap  time.Duration
+
+	// obsMu 保护退避状态与统计，独立于配置锁，避免在请求路径上抢 mu。
+	obsMu       sync.Mutex
+	blockUntil  time.Time
+	strikes     int
+	total       int
+	success     int
+	failed      int
+	rejected    int
+	recent      []requestRecord
+	lastErr     string
+	lastErrAt   time.Time
+	lastProbeAt time.Time
+	lastProbeOK bool
+	lastProbe   string
 }
 
 type Options struct {
@@ -81,6 +154,10 @@ type Options struct {
 	Cookie string
 	// UseBundledCookie 在没有账号也没有自定义 Cookie 时，使用内置公共 Cookie。
 	UseBundledCookie bool
+
+	// PageGap/SearchGap 仅供测试缩短等待；为 0 时使用默认值。
+	PageGap   time.Duration
+	SearchGap time.Duration
 }
 
 // bundledCookie 来自 LightNovelReader 项目内置的公共账号 Cookie。
@@ -122,6 +199,14 @@ func NewClient(opt Options) (*Client, error) {
 	if timeout == 0 {
 		timeout = 25 * time.Second
 	}
+	pageGap := opt.PageGap
+	if pageGap == 0 {
+		pageGap = defaultPageGap
+	}
+	searchGap := opt.SearchGap
+	if searchGap == 0 {
+		searchGap = defaultSearchGap
+	}
 
 	profile := profiles.Safari_IOS_17_0
 	switch strings.ToLower(opt.Profile) {
@@ -160,23 +245,36 @@ func NewClient(opt Options) (*Client, error) {
 	}
 
 	c := &Client{
-		hosts:  hosts,
-		tc:     tc,
-		user:   opt.Username,
-		pass:   opt.Password,
-		cookie: cookie,
-		source: source,
-		sem:    make(chan struct{}, 3),
+		hosts:        append([]string(nil), hosts...),
+		tc:           tc,
+		user:         opt.Username,
+		pass:         opt.Password,
+		cookie:       cookie,
+		cookieHeader: cookie,
+		source:       source,
+		sem:          make(chan struct{}, 3),
+		pageGap:      pageGap,
+		searchGap:    searchGap,
 	}
-	if cookie != "" {
-		c.seedCookies(cookie)
-	}
+	// 关键修复：Cookie 按域存储，只 seed 当前 host 会让轮换后的域裸奔。
+	// 这里对全部 host 都注入一次，rotate() 之后也不会丢登录态。
+	c.seedCookies(cookie)
 	return c, nil
 }
 
-// seedCookies 把 "a=b; c=d" 形式的 Cookie 写进 tls-client 的 cookie jar。
+// seedCookies 把 "a=b; c=d" 形式的 Cookie 写进所有 host 的 cookie jar。
 func (c *Client) seedCookies(header string) {
-	u, err := url.Parse(c.host())
+	if header == "" {
+		return
+	}
+	for _, h := range c.snapshotHosts() {
+		c.seedCookiesOn(h, header)
+	}
+}
+
+// seedCookiesOn 把 Cookie 头写进指定 host 的 jar。
+func (c *Client) seedCookiesOn(host, header string) {
+	u, err := url.Parse(host)
 	if err != nil {
 		return
 	}
@@ -197,6 +295,12 @@ func (c *Client) seedCookies(header string) {
 	}
 }
 
+func (c *Client) snapshotHosts() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]string(nil), c.hosts...)
+}
+
 // CookieSource 返回当前列表访问所用的登录凭据来源。
 func (c *Client) CookieSource() CookieSource {
 	c.mu.RLock()
@@ -204,11 +308,12 @@ func (c *Client) CookieSource() CookieSource {
 	return c.source
 }
 
-// SetCookie 用自定义 Cookie 覆盖当前凭据。
+// SetCookie 用自定义 Cookie 覆盖当前凭据，并对所有 host 生效。
 func (c *Client) SetCookie(header string) {
 	c.mu.Lock()
 	c.user, c.pass = "", ""
 	c.cookie = header
+	c.cookieHeader = header
 	c.source = CookieCustom
 	c.loggedIn = header != ""
 	c.mu.Unlock()
@@ -221,13 +326,65 @@ func (c *Client) host() string {
 	return c.hosts[c.hostIdx]
 }
 
+// rotate 切换到下一个域名，并确保新域也有登录 Cookie。
+//
+// 注意：429/403 是 Cloudflare 对出口 IP 的限流，不在此处轮换——
+// 换域名反而会让请求数翻倍、把限流打得更久。
 func (c *Client) rotate() {
 	c.mu.Lock()
 	c.hostIdx = (c.hostIdx + 1) % len(c.hosts)
+	header := c.cookieHeader
+	primary := c.hosts[0]
+	src := c.source
+	c.mu.Unlock()
+
+	// 只在"新 host 还没有 Cookie"时补种，避免用初始 Cookie 覆盖站点已经
+	// 续期过的 Set-Cookie 值（wenku8 会在每次成功响应里刷新 jieqiUserLogin）。
+	if header != "" {
+		c.ensureSeeded(c.host(), header)
+		return
+	}
+	if src == CookieAccount {
+		c.ensureMirrored(primary, c.host())
+	}
+}
+
+// ensureSeeded 只在 host 的 jar 为空时注入 Cookie。
+func (c *Client) ensureSeeded(host, header string) {
+	u, err := url.Parse(host)
+	if err != nil || len(c.tc.GetCookies(u)) > 0 {
+		return
+	}
+	c.seedCookiesOn(host, header)
+}
+
+// ensureMirrored 在 account 模式下把主域的 Cookie 补到缺失的 host。
+func (c *Client) ensureMirrored(from, to string) {
+	if from == to {
+		return
+	}
+	toURL, err := url.Parse(to)
+	if err != nil || len(c.tc.GetCookies(toURL)) > 0 {
+		return
+	}
+	c.mirrorCookiesToAllHosts(from)
+}
+
+// preferPrimary 把 hostIdx 拨回主域。
+// 轮换只用于故障转移；一旦请求成功就回到主域，避免长期粘在 .cc 上
+// （.cc 每个请求都要多一次 301，等于把上游请求数翻倍）。
+func (c *Client) preferPrimary() {
+	c.mu.Lock()
+	if c.hostIdx != 0 {
+		c.hostIdx = 0
+	}
 	c.mu.Unlock()
 }
 
 func (c *Client) Host() string { return c.host() }
+
+// Hosts 返回域名列表（只读副本）。
+func (c *Client) Hosts() []string { return c.snapshotHosts() }
 
 // SetCredentials 更新账号并清除登录态，下次 Login 时生效。
 func (c *Client) SetCredentials(user, pass string) {
@@ -257,6 +414,154 @@ func (c *Client) IsLoggedIn() bool {
 	return c.loggedIn
 }
 
+// markLoginInvalid 在站点明确返回登录页时把内存里的登录态置为失效，
+// 这样 /api/health 的 login 字段不会继续骗人。
+func (c *Client) markLoginInvalid() {
+	c.mu.Lock()
+	c.loggedIn = false
+	c.mu.Unlock()
+}
+
+// ---------------------------------------------------------------- 退避与统计
+
+// noteRejected 记录一次"本地退避拒绝"。
+func (c *Client) noteRejected() {
+	c.obsMu.Lock()
+	c.rejected++
+	c.obsMu.Unlock()
+}
+
+func (c *Client) blockedFor() time.Duration {
+	c.obsMu.Lock()
+	defer c.obsMu.Unlock()
+	if c.blockUntil.IsZero() {
+		return 0
+	}
+	if d := time.Until(c.blockUntil); d > 0 {
+		return d
+	}
+	c.blockUntil = time.Time{}
+	return 0
+}
+
+// tripBlock 记录一次被限流/被拦截，返回本次退避时长。
+// 连续触发时逐步拉长，但不超过 maxBackoff。
+func (c *Client) tripBlock(base time.Duration) time.Duration {
+	c.obsMu.Lock()
+	defer c.obsMu.Unlock()
+	c.strikes++
+	d := base
+	if c.strikes > 1 {
+		d += time.Duration(c.strikes-1) * 5 * time.Second
+	}
+	if d > maxBackoff {
+		d = maxBackoff
+	}
+	if until := time.Now().Add(d); until.After(c.blockUntil) {
+		c.blockUntil = until
+	}
+	return d
+}
+
+func (c *Client) recordOK() {
+	c.obsMu.Lock()
+	defer c.obsMu.Unlock()
+	c.total++
+	c.success++
+	c.strikes = 0
+	c.pushRecord(requestRecord{ok: true, kind: "ok"})
+}
+
+func (c *Client) recordFail(kind string, err error) {
+	c.obsMu.Lock()
+	defer c.obsMu.Unlock()
+	c.total++
+	c.failed++
+	c.pushRecord(requestRecord{ok: false, kind: kind})
+	if err != nil {
+		c.lastErr = err.Error()
+		c.lastErrAt = time.Now()
+	}
+}
+
+func (c *Client) pushRecord(r requestRecord) {
+	c.recent = append(c.recent, r)
+	if len(c.recent) > recentWindow {
+		c.recent = c.recent[len(c.recent)-recentWindow:]
+	}
+}
+
+func (c *Client) noteProbe(ok bool, note string) {
+	c.obsMu.Lock()
+	defer c.obsMu.Unlock()
+	c.lastProbeAt = time.Now()
+	c.lastProbeOK = ok
+	c.lastProbe = note
+}
+
+// Status 返回可观测性快照。
+func (c *Client) Status() Status {
+	c.mu.RLock()
+	st := Status{
+		Source:   c.source,
+		Host:     c.hosts[c.hostIdx],
+		Hosts:    append([]string(nil), c.hosts...),
+		LoggedIn: c.loggedIn,
+	}
+	c.mu.RUnlock()
+
+	c.obsMu.Lock()
+	st.Requests = c.total
+	st.Success = c.success
+	st.Failed = c.failed
+	st.Rejected = c.rejected
+	st.LastError = c.lastErr
+	st.LastProbeOK = c.lastProbeOK
+	st.LastProbeNote = c.lastProbe
+	if c.total > 0 {
+		st.SuccessRate = float64(c.success) / float64(c.total)
+	}
+	if len(c.recent) > 0 {
+		n := 0
+		for _, r := range c.recent {
+			if r.ok {
+				n++
+			}
+		}
+		st.RecentSuccessRate = float64(n) / float64(len(c.recent))
+	}
+	st.Strikes = c.strikes
+	if !c.blockUntil.IsZero() {
+		if d := time.Until(c.blockUntil); d > 0 {
+			st.Blocked = true
+			st.BackoffSeconds = int(math.Ceil(d.Seconds()))
+			st.BlockedUntil = c.blockUntil.Format(time.RFC3339)
+		}
+	}
+	if !c.lastErrAt.IsZero() {
+		st.LastErrorAt = c.lastErrAt.Format(time.RFC3339)
+	}
+	if !c.lastProbeAt.IsZero() {
+		st.LastProbeAt = c.lastProbeAt.Format(time.RFC3339)
+	}
+	c.obsMu.Unlock()
+
+	// 记录哪些 host 真的有 Cookie —— 这是"域切换丢登录态"的直接证据。
+	for _, h := range st.Hosts {
+		u, err := url.Parse(h)
+		if err != nil {
+			continue
+		}
+		if len(c.tc.GetCookies(u)) > 0 {
+			st.CookieHosts = append(st.CookieHosts, h)
+		}
+	}
+	if st.CookieHosts == nil {
+		st.CookieHosts = []string{}
+	}
+	return st
+}
+
 // ---------------------------------------------------------------- 请求
 
 func (c *Client) wait(ctx context.Context) error {
@@ -267,7 +572,7 @@ func (c *Client) wait(ctx context.Context) error {
 	}
 
 	c.gate.Lock()
-	if d := pageGap - time.Since(c.last); d > 0 {
+	if d := c.pageGap - time.Since(c.last); d > 0 {
 		time.Sleep(d)
 	}
 	c.last = time.Now()
@@ -291,10 +596,22 @@ func (c *Client) newRequest(ctx context.Context, method, rawURL string, body io.
 
 // do 发起一次 GET，自动做域名轮换与错误分类。
 func (c *Client) do(ctx context.Context, path string) ([]byte, error) {
+	// 退避期内直接快速失败：继续打只会把 Cloudflare 的 1015 打得更久。
+	if d := c.blockedFor(); d > 0 {
+		c.noteRejected()
+		return nil, fmt.Errorf("%w：还需等待约 %d 秒", ErrRateLimited, int(math.Ceil(d.Seconds())))
+	}
+
 	if err := c.wait(ctx); err != nil {
 		return nil, err
 	}
 	defer c.release()
+
+	// 排队期间可能已经被别的请求触发了退避，再确认一次，避免继续打上游。
+	if d := c.blockedFor(); d > 0 {
+		c.noteRejected()
+		return nil, fmt.Errorf("%w：还需等待约 %d 秒", ErrRateLimited, int(math.Ceil(d.Seconds())))
+	}
 
 	var lastErr error
 	for attempt := 0; attempt < len(c.hosts); attempt++ {
@@ -305,6 +622,7 @@ func (c *Client) do(ctx context.Context, path string) ([]byte, error) {
 
 		resp, err := c.tc.Do(req)
 		if err != nil {
+			c.recordFail("transport", err)
 			lastErr = err
 			c.rotate()
 			continue
@@ -312,24 +630,40 @@ func (c *Client) do(ctx context.Context, path string) ([]byte, error) {
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
 		if readErr != nil {
+			c.recordFail("read", readErr)
 			lastErr = readErr
 			c.rotate()
 			continue
 		}
 
-		if resp.StatusCode == 404 {
+		switch {
+		case resp.StatusCode == 404:
+			c.recordFail("not_found", ErrNotFound)
 			return nil, ErrNotFound
-		}
-		if resp.StatusCode == 403 || looksLikeChallenge(body) {
-			lastErr = ErrBlocked
-			c.rotate()
-			continue
-		}
-		if resp.StatusCode >= 400 {
+		case resp.StatusCode == 429:
+			// Cloudflare 1015：zone 级限流，换 host 是同一个 zone，退避才是正解。
+			d := c.tripBlock(retryAfter(resp, defaultRetryAfter))
+			err := fmt.Errorf("%w（Cloudflare 1015，已退避 %d 秒）", ErrRateLimited, int(math.Ceil(d.Seconds())))
+			c.recordFail("rate_limited", err)
+			return nil, err
+		case resp.StatusCode == 403 || looksLikeChallenge(body):
+			d := c.tripBlock(3 * time.Second)
+			err := fmt.Errorf("%w（已退避 %d 秒）", ErrBlocked, int(math.Ceil(d.Seconds())))
+			c.recordFail("blocked", err)
+			return nil, err
+		case resp.StatusCode >= 500:
 			lastErr = fmt.Errorf("wenku8 返回 HTTP %d", resp.StatusCode)
+			c.recordFail("http_5xx", lastErr)
+			c.rotate()
+			continue
+		case resp.StatusCode >= 400:
+			lastErr = fmt.Errorf("wenku8 返回 HTTP %d", resp.StatusCode)
+			c.recordFail("http_4xx", lastErr)
 			c.rotate()
 			continue
 		}
+		c.recordOK()
+		c.preferPrimary()
 		return body, nil
 	}
 	if lastErr == nil {
@@ -338,8 +672,36 @@ func (c *Client) do(ctx context.Context, path string) ([]byte, error) {
 	return nil, lastErr
 }
 
+// retryAfter 解析 Retry-After（秒）。Cloudflare 1015 通常给 10 秒。
+func retryAfter(resp *fhttp.Response, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if v == "" {
+		return fallback
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		d := time.Duration(n) * time.Second
+		if d > maxBackoff {
+			d = maxBackoff
+		}
+		return d
+	}
+	if t, err := fhttp.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			if d > maxBackoff {
+				d = maxBackoff
+			}
+			return d
+		}
+	}
+	return fallback
+}
+
 // Fetch 抓取任意绝对 URL（图片代理用），返回字节与 Content-Type。
 func (c *Client) Fetch(ctx context.Context, rawURL string) ([]byte, string, error) {
+	if d := c.blockedFor(); d > 0 {
+		c.noteRejected()
+		return nil, "", fmt.Errorf("%w：还需等待约 %d 秒", ErrRateLimited, int(math.Ceil(d.Seconds())))
+	}
 	if err := c.wait(ctx); err != nil {
 		return nil, "", err
 	}
@@ -377,6 +739,11 @@ func looksLikeChallenge(body []byte) bool {
 		strings.Contains(s, "Attention Required")
 }
 
+// isLoginPageText 判断页面是否是站点要求登录的提示页。
+func isLoginPageText(s string) bool {
+	return strings.Contains(s, "本站正式关闭")
+}
+
 // fetchDoc 取页面并解析为 goquery 文档（已把 GBK 转成 UTF-8）。
 func (c *Client) fetchDoc(ctx context.Context, path string) (*goquery.Document, error) {
 	raw, err := c.do(ctx, path)
@@ -389,8 +756,12 @@ func (c *Client) fetchDoc(ctx context.Context, path string) (*goquery.Document, 
 	}
 	s := string(utf8Body)
 
-	if strings.Contains(s, "本站正式关闭") && !c.IsLoggedIn() {
-		return nil, ErrLoginRequired
+	if isLoginPageText(s) {
+		c.markLoginInvalid()
+		if c.CookieSource() == CookieNone {
+			return nil, ErrLoginRequired
+		}
+		return nil, fmt.Errorf("%w：站点返回了登录页，请在设置中更新账号或 Cookie", ErrLoginStale)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(s))
@@ -431,6 +802,11 @@ func (c *Client) Login(ctx context.Context) error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
+	if resp.StatusCode == 429 {
+		d := c.tripBlock(retryAfter(resp, defaultRetryAfter))
+		return fmt.Errorf("%w（登录时被 Cloudflare 限流，已退避 %d 秒）", ErrRateLimited, int(math.Ceil(d.Seconds())))
+	}
+
 	u, _ := url.Parse(c.host())
 	logged := false
 	for _, ck := range c.tc.GetCookies(u) {
@@ -451,35 +827,68 @@ func (c *Client) Login(ctx context.Context) error {
 	c.mu.Lock()
 	c.loggedIn = true
 	c.mu.Unlock()
+	// 把登录得到的 Cookie 镜像到其它域名，避免 rotate 后只剩一个域有登录态。
+	c.mirrorCookiesToAllHosts(c.host())
 	return nil
+}
+
+// mirrorCookiesToAllHosts 把 from 域上的 Cookie 复制到其它 host。
+// 站点只认 .net 的登录态，.cc 会 301；镜像只是兜底，不改变现有行为。
+func (c *Client) mirrorCookiesToAllHosts(from string) {
+	u, err := url.Parse(from)
+	if err != nil {
+		return
+	}
+	cookies := c.tc.GetCookies(u)
+	if len(cookies) == 0 {
+		return
+	}
+	for _, h := range c.snapshotHosts() {
+		if h == from {
+			continue
+		}
+		nu, err := url.Parse(h)
+		if err != nil {
+			continue
+		}
+		clones := make([]*fhttp.Cookie, 0, len(cookies))
+		for _, ck := range cookies {
+			clones = append(clones, &fhttp.Cookie{Name: ck.Name, Value: ck.Value})
+		}
+		c.tc.SetCookies(nu, clones)
+	}
 }
 
 // VerifyLogin 用一次列表请求验证登录态是否仍然有效。
 func (c *Client) VerifyLogin(ctx context.Context) bool {
-	if !c.IsLoggedIn() {
-		return false
-	}
 	raw, err := c.do(ctx, "/modules/article/toplist.php?sort=allvisit")
 	if err != nil {
 		return false
 	}
 	utf8Body, _ := simplifiedchinese.GBK.NewDecoder().Bytes(raw)
-	return !strings.Contains(string(utf8Body), "本站正式关闭")
+	return !isLoginPageText(string(utf8Body))
+}
+
+// Probe 做一次轻量列表探测（排行榜第 1 页），用于启动自检。
+func (c *Client) Probe(ctx context.Context) error {
+	res, err := c.TopList(ctx, "allvisit", 1)
+	if err != nil {
+		return err
+	}
+	c.noteProbe(true, fmt.Sprintf("排行榜第 1 页 %d 条", len(res.Items)))
+	return nil
 }
 
 // ---------------------------------------------------------------- 搜索节流
 
-// searchWait 保证两次搜索至少间隔 5.2 秒。
-func (c *Client) searchWait(ctx context.Context) error {
-	c.searchGate.Lock()
-	defer c.searchGate.Unlock()
-	if d := searchGap - time.Since(c.lastSearch); d > 0 {
+// waitSearchGap 在已持有 searchGate 的前提下补足两次搜索的间隔。
+func (c *Client) waitSearchGap(ctx context.Context) error {
+	if d := c.searchGap - time.Since(c.lastSearch); d > 0 {
 		select {
 		case <-time.After(d):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-	c.lastSearch = time.Now()
 	return nil
 }
