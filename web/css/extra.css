@@ -463,3 +463,111 @@ input.range::-moz-focus-outer { border: 0; }
 
 /* 设置页分段控件不要贴边太紧 */
 .page-body > .seg { margin: 8px 0 4px; }
+
+/* ------------------------------------------------------------
+   10. 主题选择器（每个选项一个 CSS 色块，不用图片）
+   ------------------------------------------------------------ */
+
+.theme-picker { padding: 4px 0 2px; }
+
+.theme-head { padding: 14px 16px 0; }
+.theme-head .label {
+  font: var(--md-font-body-large);
+  letter-spacing: var(--md-tracking-body);
+  color: var(--md-on-surface);
+}
+.theme-head .desc {
+  margin-top: 3px;
+  font: var(--md-font-body-small);
+  line-height: 1.55;
+  color: var(--md-on-surface-variant);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+
+.theme-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 46px;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-on-surface);
+  font: var(--md-font-label-large);
+  letter-spacing: var(--md-tracking-label);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background var(--md-motion-fast), border-color var(--md-motion-fast),
+              color var(--md-motion-fast);
+}
+.theme-opt:hover { background: color-mix(in srgb, var(--md-on-surface) 6%, transparent); }
+.theme-opt:active { background: color-mix(in srgb, var(--md-on-surface) 11%, transparent); }
+.theme-opt.on {
+  border-color: var(--md-primary);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  font-weight: 600;
+}
+
+.theme-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 色块：主色 / 底色斜切的小圆点，一眼看出这套配色是什么味道。
+   颜色是各主题的常量种子色（不跟随当前主题），否则预览就没有意义。 */
+.theme-dot {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg,
+    var(--sw-a, #8c4a2f) 0 54%,
+    var(--sw-b, #fcf8f4) 54% 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+.theme-opt.on .theme-dot {
+  box-shadow: 0 0 0 2px var(--md-primary), inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+
+.theme-dot[data-k="auto"]   { --sw-a: #8c4a2f; --sw-b: #18120f; }
+.theme-dot[data-k="light"]  { --sw-a: #8c4a2f; --sw-b: #fcf8f4; }
+.theme-dot[data-k="sepia"]  { --sw-a: #8a4a28; --sw-b: #f6eee0; }
+.theme-dot[data-k="dark"]   { --sw-a: #ffb599; --sw-b: #18120f; }
+.theme-dot[data-k="forest"] { --sw-a: #1f6b43; --sw-b: #d7f5e0; }
+.theme-dot[data-k="ocean"]  { --sw-a: #00639b; --sw-b: #d6ebff; }
+.theme-dot[data-k="sakura"] { --sw-a: #a23d5e; --sw-b: #ffe1e8; }
+.theme-dot[data-k="violet"] { --sw-a: #64489b; --sw-b: #ecddff; }
+.theme-dot[data-k="indigo"] { --sw-a: #3f4fa8; --sw-b: #e3e5ff; }
+.theme-dot[data-k="slate"]  { --sw-a: #445169; --sw-b: #dde5f4; }
+
+/* ------------------------------------------------------------
+   11. 429 限流弹窗内容
+   ------------------------------------------------------------ */
+
+.limit-body { padding: 2px 12px 6px; }
+.limit-text {
+  font: var(--md-font-body-large);
+  line-height: 1.65;
+  color: var(--md-on-surface);
+}
+.limit-note {
+  margin-top: 10px;
+  font: var(--md-font-body-small);
+  line-height: 1.6;
+  color: var(--md-on-surface-variant);
+}

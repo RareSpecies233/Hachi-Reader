@@ -242,6 +242,642 @@
   --md-elevation-3: 0 8px 20px rgba(0, 0, 0, 0.62);
 }
 
+/* ------------------------------------------------------------
+   3b. 扩展配色：森林绿 / 海洋蓝 / 樱花粉 / 暮紫 / 靛蓝 / 石墨
+   ------------------------------------------------------------
+   全部按 MD3 color role 定义完整角色。每套「浅色为默认」，
+   系统深色时自动切到同色相的深版（纯 CSS，不经过 JS），
+   所以在设置里只需选一次，不必再分别挑亮/暗。
+   实测对比度：正文 on-surface/surface ≥ 14:1，
+   卡片内正文 ≥ 11:1，主色当文字用 ≥ 5.9:1，
+   主色/容器按钮上的文字 ≥ 6.1:1。
+   ------------------------------------------------------------ */
+
+
+/* 森林绿（种子 ≈ #1f6b43） */
+[data-theme="forest"] {
+  color-scheme: light;
+
+  --md-primary: #1f6b43;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #aaf2c4;
+  --md-on-primary-container: #00210f;
+  --md-primary-fixed-dim: #6fbb8a;
+
+  --md-secondary: #4d6354;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #cfe9d5;
+  --md-on-secondary-container: #0a1f12;
+
+  --md-tertiary: #3b6478;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #bee9ff;
+  --md-on-tertiary-container: #001e2b;
+
+  --md-surface: #f4faf3;
+  --md-surface-dim: #d4dfd4;
+  --md-surface-bright: #f9fff8;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #eef6ed;
+  --md-surface-container: #e8f2e7;
+  --md-surface-container-high: #e2ece1;
+  --md-surface-container-highest: #dbe6db;
+
+  --md-on-surface: #0f1d13;
+  --md-on-surface-variant: #3d4a3f;
+  --md-outline: #6d7a6e;
+  --md-outline-variant: #bfcabe;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #243029;
+  --md-inverse-on-surface: #eaf3e8;
+  --md-inverse-primary: #8fd6a8;
+
+  --md-success: #2f6b45;
+
+  --md-scrim: rgba(12, 32, 20, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(20, 50, 30, 0.10), 0 1px 3px 1px rgba(20, 50, 30, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(20, 50, 30, 0.12), 0 4px 10px 2px rgba(20, 50, 30, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(20, 50, 30, 0.16), 0 10px 24px 4px rgba(20, 50, 30, 0.12);
+}
+
+/* 系统深色 → 森林绿 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="forest"] {
+    color-scheme: dark;
+
+    --md-primary: #8fd6a8;
+    --md-on-primary: #00391d;
+    --md-primary-container: #0b512f;
+    --md-on-primary-container: #aaf2c4;
+    --md-primary-fixed-dim: #1f6b43;
+
+    --md-secondary: #b4cdb8;
+    --md-on-secondary: #aaf2c4;
+    --md-secondary-container: #364b3d;
+    --md-on-secondary-container: #cfe9d5;
+
+    --md-tertiary: #a1cddf;
+    --md-on-tertiary: #aaf2c4;
+    --md-tertiary-container: #214b5e;
+    --md-on-tertiary-container: #bee9ff;
+
+    --md-surface: #0e1511;
+    --md-surface-dim: #0e1511;
+    --md-surface-bright: #343e37;
+    --md-surface-container-lowest: #090f0c;
+    --md-surface-container-low: #161e19;
+    --md-surface-container: #1a231d;
+    --md-surface-container-high: #242e27;
+    --md-surface-container-highest: #2f3931;
+
+    --md-on-surface: #dcefe0;
+    --md-on-surface-variant: #b9cbbd;
+    --md-outline: #8a9a8d;
+    --md-outline-variant: #3f4a41;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #dcefe0;
+    --md-inverse-on-surface: #29342c;
+    --md-inverse-primary: #1f6b43;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* 海洋蓝（种子 ≈ #00639b） */
+[data-theme="ocean"] {
+  color-scheme: light;
+
+  --md-primary: #00639b;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #cee5ff;
+  --md-on-primary-container: #001d33;
+  --md-primary-fixed-dim: #7cbdF2;
+
+  --md-secondary: #50606f;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #d3e5f8;
+  --md-on-secondary-container: #0c1d2b;
+
+  --md-tertiary: #3e6374;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #c1e8fc;
+  --md-on-tertiary-container: #001e2a;
+
+  --md-surface: #f6f9ff;
+  --md-surface-dim: #d8e0ea;
+  --md-surface-bright: #fbfdff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f0f4fe;
+  --md-surface-container: #e9f0fb;
+  --md-surface-container-high: #e3eaf5;
+  --md-surface-container-highest: #dce4ef;
+
+  --md-on-surface: #0d1c2b;
+  --md-on-surface-variant: #3f4a56;
+  --md-outline: #6f7a86;
+  --md-outline-variant: #bfc8d4;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #223141;
+  --md-inverse-on-surface: #ecf1fb;
+  --md-inverse-primary: #96ccff;
+
+  --md-success: #2f6b45;
+
+  --md-scrim: rgba(8, 26, 42, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(16, 42, 66, 0.10), 0 1px 3px 1px rgba(16, 42, 66, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(16, 42, 66, 0.12), 0 4px 10px 2px rgba(16, 42, 66, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(16, 42, 66, 0.16), 0 10px 24px 4px rgba(16, 42, 66, 0.12);
+}
+
+/* 系统深色 → 海洋蓝 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="ocean"] {
+    color-scheme: dark;
+
+    --md-primary: #96ccff;
+    --md-on-primary: #003354;
+    --md-primary-container: #004a77;
+    --md-on-primary-container: #cee5ff;
+    --md-primary-fixed-dim: #00639b;
+
+    --md-secondary: #b7c9da;
+    --md-on-secondary: #cee5ff;
+    --md-secondary-container: #374956;
+    --md-on-secondary-container: #d3e5f8;
+
+    --md-tertiary: #a5cce0;
+    --md-on-tertiary: #cee5ff;
+    --md-tertiary-container: #25485a;
+    --md-on-tertiary-container: #c1e8fc;
+
+    --md-surface: #0b141c;
+    --md-surface-dim: #0b141c;
+    --md-surface-bright: #313b46;
+    --md-surface-container-lowest: #060e14;
+    --md-surface-container-low: #131c25;
+    --md-surface-container: #17202a;
+    --md-surface-container-high: #212b35;
+    --md-surface-container-highest: #2c3640;
+
+    --md-on-surface: #d9e3f0;
+    --md-on-surface-variant: #bfc8d4;
+    --md-outline: #8a939f;
+    --md-outline-variant: #3f4a56;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #d9e3f0;
+    --md-inverse-on-surface: #26313c;
+    --md-inverse-primary: #00639b;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* 樱花粉（种子 ≈ #a23d5e） */
+[data-theme="sakura"] {
+  color-scheme: light;
+
+  --md-primary: #a23d5e;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #ffd9e1;
+  --md-on-primary-container: #3f0016;
+  --md-primary-fixed-dim: #e08ba2;
+
+  --md-secondary: #74565d;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #ffd9e0;
+  --md-on-secondary-container: #2b151b;
+
+  --md-tertiary: #7c5635;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #ffdcbe;
+  --md-on-tertiary-container: #2c1600;
+
+  --md-surface: #fff8f9;
+  --md-surface-dim: #e6d6d9;
+  --md-surface-bright: #fffbfb;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #fdf1f3;
+  --md-surface-container: #f7ebee;
+  --md-surface-container-high: #f1e5e8;
+  --md-surface-container-highest: #ebe0e3;
+
+  --md-on-surface: #201a1c;
+  --md-on-surface-variant: #504347;
+  --md-outline: #837377;
+  --md-outline-variant: #d6c2c6;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #362e31;
+  --md-inverse-on-surface: #fbedf0;
+  --md-inverse-primary: #ffb1c5;
+
+  --md-success: #4c6b3f;
+
+  --md-scrim: rgba(48, 20, 28, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(70, 30, 40, 0.10), 0 1px 3px 1px rgba(70, 30, 40, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(70, 30, 40, 0.12), 0 4px 10px 2px rgba(70, 30, 40, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(70, 30, 40, 0.16), 0 10px 24px 4px rgba(70, 30, 40, 0.12);
+}
+
+/* 系统深色 → 樱花粉 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="sakura"] {
+    color-scheme: dark;
+
+    --md-primary: #ffb1c5;
+    --md-on-primary: #5f1130;
+    --md-primary-container: #7d2846;
+    --md-on-primary-container: #ffd9e1;
+    --md-primary-fixed-dim: #a23d5e;
+
+    --md-secondary: #e2bdc4;
+    --md-on-secondary: #ffd9e1;
+    --md-secondary-container: #5a3f45;
+    --md-on-secondary-container: #ffd9e0;
+
+    --md-tertiary: #ebbe97;
+    --md-on-tertiary: #ffd9e1;
+    --md-tertiary-container: #614127;
+    --md-on-tertiary-container: #ffdcbe;
+
+    --md-surface: #181113;
+    --md-surface-dim: #181113;
+    --md-surface-bright: #3f3639;
+    --md-surface-container-lowest: #120c0e;
+    --md-surface-container-low: #201a1c;
+    --md-surface-container: #241e20;
+    --md-surface-container-high: #2f282a;
+    --md-surface-container-highest: #3a3335;
+
+    --md-on-surface: #f5e0e4;
+    --md-on-surface-variant: #d6c2c6;
+    --md-outline: #9e8c90;
+    --md-outline-variant: #524347;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #f5e0e4;
+    --md-inverse-on-surface: #362e31;
+    --md-inverse-primary: #a23d5e;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* 暮紫（种子 ≈ #64489b） */
+[data-theme="violet"] {
+  color-scheme: light;
+
+  --md-primary: #64489b;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #ebddff;
+  --md-on-primary-container: #22005d;
+  --md-primary-fixed-dim: #b49ce0;
+
+  --md-secondary: #635b70;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #e9def8;
+  --md-on-secondary-container: #1f182b;
+
+  --md-tertiary: #7d5260;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #ffd9e2;
+  --md-on-tertiary-container: #31101d;
+
+  --md-surface: #fbf8ff;
+  --md-surface-dim: #ded8e8;
+  --md-surface-bright: #fffbff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f5f1fe;
+  --md-surface-container: #efeaf9;
+  --md-surface-container-high: #e9e4f3;
+  --md-surface-container-highest: #e3deed;
+
+  --md-on-surface: #1c1a22;
+  --md-on-surface-variant: #48454f;
+  --md-outline: #797580;
+  --md-outline-variant: #cac4d0;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #312f39;
+  --md-inverse-on-surface: #f4eefe;
+  --md-inverse-primary: #cebdff;
+
+  --md-success: #4c6b3f;
+
+  --md-scrim: rgba(30, 24, 44, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(46, 36, 70, 0.10), 0 1px 3px 1px rgba(46, 36, 70, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(46, 36, 70, 0.12), 0 4px 10px 2px rgba(46, 36, 70, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(46, 36, 70, 0.16), 0 10px 24px 4px rgba(46, 36, 70, 0.12);
+}
+
+/* 系统深色 → 暮紫 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="violet"] {
+    color-scheme: dark;
+
+    --md-primary: #cebdff;
+    --md-on-primary: #4b2f80;
+    --md-primary-container: #4c3183;
+    --md-on-primary-container: #ebddff;
+    --md-primary-fixed-dim: #64489b;
+
+    --md-secondary: #cdc2dc;
+    --md-on-secondary: #ebddff;
+    --md-secondary-container: #4b4558;
+    --md-on-secondary-container: #e9def8;
+
+    --md-tertiary: #eeb8c8;
+    --md-on-tertiary: #ebddff;
+    --md-tertiary-container: #633b48;
+    --md-on-tertiary-container: #ffd9e2;
+
+    --md-surface: #141218;
+    --md-surface-dim: #141218;
+    --md-surface-bright: #3b3743;
+    --md-surface-container-lowest: #0e0d12;
+    --md-surface-container-low: #1c1a21;
+    --md-surface-container: #201e25;
+    --md-surface-container-high: #2a2830;
+    --md-surface-container-highest: #35333b;
+
+    --md-on-surface: #e7e0ec;
+    --md-on-surface-variant: #cac4d0;
+    --md-outline: #948f9c;
+    --md-outline-variant: #48454f;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #e7e0ec;
+    --md-inverse-on-surface: #312f39;
+    --md-inverse-primary: #64489b;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* 靛蓝（种子 ≈ #3f4fa8） */
+[data-theme="indigo"] {
+  color-scheme: light;
+
+  --md-primary: #3f4fa8;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #dee0ff;
+  --md-on-primary-container: #00105c;
+  --md-primary-fixed-dim: #93a0ef;
+
+  --md-secondary: #5b5d72;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #e0e0f9;
+  --md-on-secondary-container: #181a2c;
+
+  --md-tertiary: #76546b;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #ffd8ef;
+  --md-on-tertiary-container: #2c1225;
+
+  --md-surface: #fbf8ff;
+  --md-surface-dim: #dcdae6;
+  --md-surface-bright: #fffbff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f4f2fe;
+  --md-surface-container: #eeecf9;
+  --md-surface-container-high: #e8e6f3;
+  --md-surface-container-highest: #e2e0ed;
+
+  --md-on-surface: #1a1b23;
+  --md-on-surface-variant: #46464f;
+  --md-outline: #777680;
+  --md-outline-variant: #c7c5d0;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #2f3038;
+  --md-inverse-on-surface: #f1effa;
+  --md-inverse-primary: #bac3ff;
+
+  --md-success: #4c6b3f;
+
+  --md-scrim: rgba(24, 26, 48, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(32, 38, 84, 0.10), 0 1px 3px 1px rgba(32, 38, 84, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(32, 38, 84, 0.12), 0 4px 10px 2px rgba(32, 38, 84, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(32, 38, 84, 0.16), 0 10px 24px 4px rgba(32, 38, 84, 0.12);
+}
+
+/* 系统深色 → 靛蓝 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="indigo"] {
+    color-scheme: dark;
+
+    --md-primary: #bac3ff;
+    --md-on-primary: #08218a;
+    --md-primary-container: #253b96;
+    --md-on-primary-container: #dee0ff;
+    --md-primary-fixed-dim: #3f4fa8;
+
+    --md-secondary: #c4c5dd;
+    --md-on-secondary: #dee0ff;
+    --md-secondary-container: #434659;
+    --md-on-secondary-container: #e0e0f9;
+
+    --md-tertiary: #e5bad8;
+    --md-on-tertiary: #dee0ff;
+    --md-tertiary-container: #5c3d53;
+    --md-on-tertiary-container: #ffd8ef;
+
+    --md-surface: #121318;
+    --md-surface-dim: #121318;
+    --md-surface-bright: #383a44;
+    --md-surface-container-lowest: #0c0d12;
+    --md-surface-container-low: #1a1b21;
+    --md-surface-container: #1e1f25;
+    --md-surface-container-high: #282930;
+    --md-surface-container-highest: #33343b;
+
+    --md-on-surface: #e4e1e9;
+    --md-on-surface-variant: #c7c5d0;
+    --md-outline: #918f9a;
+    --md-outline-variant: #46464f;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #e4e1e9;
+    --md-inverse-on-surface: #2f3038;
+    --md-inverse-primary: #3f4fa8;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* 石墨（种子 ≈ #445169） */
+[data-theme="slate"] {
+  color-scheme: light;
+
+  --md-primary: #445169;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d9e2f5;
+  --md-on-primary-container: #101c2d;
+  --md-primary-fixed-dim: #96a5c1;
+
+  --md-secondary: #565e71;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #dae2f9;
+  --md-on-secondary-container: #131c2b;
+
+  --md-tertiary: #6b5778;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #f2daff;
+  --md-on-tertiary-container: #251432;
+
+  --md-surface: #f8f9fc;
+  --md-surface-dim: #d9dbe2;
+  --md-surface-bright: #fcfcff;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f2f3f7;
+  --md-surface-container: #eceef3;
+  --md-surface-container-high: #e6e8ee;
+  --md-surface-container-highest: #e0e2e8;
+
+  --md-on-surface: #191c20;
+  --md-on-surface-variant: #44474e;
+  --md-outline: #75777f;
+  --md-outline-variant: #c4c6cf;
+
+  --md-error: #b3261e;
+  --md-on-error: #ffffff;
+  --md-error-container: #f9dedc;
+  --md-on-error-container: #410e0b;
+
+  --md-inverse-surface: #2e3135;
+  --md-inverse-on-surface: #eff0f4;
+  --md-inverse-primary: #b9c7e4;
+
+  --md-success: #3f6749;
+
+  --md-scrim: rgba(20, 26, 34, 0.38);
+  --md-elevation-1: 0 1px 2px rgba(24, 34, 48, 0.10), 0 1px 3px 1px rgba(24, 34, 48, 0.12);
+  --md-elevation-2: 0 2px 4px rgba(24, 34, 48, 0.12), 0 4px 10px 2px rgba(24, 34, 48, 0.10);
+  --md-elevation-3: 0 6px 12px rgba(24, 34, 48, 0.16), 0 10px 24px 4px rgba(24, 34, 48, 0.12);
+}
+
+/* 系统深色 → 石墨 深版（同一色相，不换主题名） */
+@media (prefers-color-scheme: dark) {
+  [data-theme="slate"] {
+    color-scheme: dark;
+
+    --md-primary: #b9c7e4;
+    --md-on-primary: #223049;
+    --md-primary-container: #33415b;
+    --md-on-primary-container: #d9e2f5;
+    --md-primary-fixed-dim: #445169;
+
+    --md-secondary: #bfc7db;
+    --md-on-secondary: #d9e2f5;
+    --md-secondary-container: #3f4759;
+    --md-on-secondary-container: #dae2f9;
+
+    --md-tertiary: #d8bbe6;
+    --md-on-tertiary: #d9e2f5;
+    --md-tertiary-container: #533f60;
+    --md-on-tertiary-container: #f2daff;
+
+    --md-surface: #111418;
+    --md-surface-dim: #111418;
+    --md-surface-bright: #373a3e;
+    --md-surface-container-lowest: #0b0e12;
+    --md-surface-container-low: #191c20;
+    --md-surface-container: #1d2024;
+    --md-surface-container-high: #272a2f;
+    --md-surface-container-highest: #32353a;
+
+    --md-on-surface: #e1e2e8;
+    --md-on-surface-variant: #c4c6cf;
+    --md-outline: #8e9099;
+    --md-outline-variant: #44474f;
+
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000a;
+    --md-on-error-container: #ffdad6;
+
+    --md-inverse-surface: #e1e2e8;
+    --md-inverse-on-surface: #2e3135;
+    --md-inverse-primary: #445169;
+
+    --md-success: #9bd2aa;
+
+    --md-scrim: rgba(0, 0, 0, 0.55);
+    --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.55);
+    --md-elevation-2: 0 2px 4px rgba(0, 0, 0, 0.55), 0 4px 10px 2px rgba(0, 0, 0, 0.45);
+    --md-elevation-3: 0 6px 12px rgba(0, 0, 0, 0.62), 0 10px 24px 4px rgba(0, 0, 0, 0.55);
+  }
+}
+
 /* JS 尚未执行时的兜底（防止深色用户首屏闪白） */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
@@ -307,16 +943,34 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  min-height: 100%;
   overscroll-behavior: none;
+  /* iOS Safari / 「添加到主屏幕」PWA 在路由切换、以及橡皮筋回弹时
+     会让文档短暂重新合成。只给 body 铺色时，html 这一层是 UA 的
+     白画布；内容被 clear 的那一帧就闪白。所以 html 与 body 现在都
+     显式铺 surface 色。 */
+  background-color: var(--md-surface);
 }
 
 html {
-  background: var(--md-surface);
+  background-color: var(--md-surface);
   -webkit-text-size-adjust: 100%;
 }
 
-body {
+/* 兜底同色底：一层固定在视口上的 surface 色，位于所有内容之后。
+   路由切换（clear .view → 重建）期间，即使合成器先画背景层，
+   露出来的也是同一个颜色，而不是白。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
   background: var(--md-surface);
+  pointer-events: none;
+}
+
+body {
+  background-color: var(--md-surface);
   color: var(--md-on-surface);
   font-family: var(--font-ui);
   font-size: 1rem;
@@ -339,7 +993,7 @@ img { display: block; max-width: 100%; }
 :where(.btn, .icon-btn, .row, .chip, .chip-btn, .shelf-tab, .vseg-item,
   .seg-item, .tag-chip, .book-card, .recent-card, .book-row, .vol-head, .ch,
   .switch, .input, .search-box, .load-more, .fab-ext, .act-btn, .hist-q,
-  .hist-del, .link-btn, .search-clear):focus-visible {
+  .hist-del, .link-btn, .search-clear, .theme-opt):focus-visible {
   outline: 3px solid color-mix(in srgb, var(--md-primary) 62%, transparent);
   outline-offset: 2px;
 }
@@ -349,13 +1003,16 @@ img { display: block; max-width: 100%; }
    ------------------------------------------------------------ */
 
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
   min-height: 100dvh;
   overflow: hidden;
-  background: var(--md-surface);
+  /* 外壳自己也铺一层：dvh 在 iOS 地址栏伸缩时会变，
+     这一层保证高度变化的瞬间露出的仍是同色底。 */
+  background-color: var(--md-surface);
 }
 
 .view {
@@ -363,19 +1020,32 @@ img { display: block; max-width: 100%; }
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+  /* 去掉了 -webkit-overflow-scrolling: touch：
+     iOS 会为它单独建一个合成滚动层（独立 backing store），
+     切页清空内容时这一层先被刷成白色再重绘，就是「整屏闪白」的来源。
+     iOS 13+ 默认已有惯性滚动，去掉它不损失手感。 */
   overscroll-behavior-y: contain;
   scrollbar-width: none;
-  background: var(--md-surface);
+  /* 背景画在滚动容器自己身上：清空子节点时露出的是同色 surface。 */
+  background-color: var(--md-surface);
+  /* 把重绘范围限制在 .view 内部，切换时不牵连整棵树。 */
+  contain: paint;
 }
 .view::-webkit-scrollbar { display: none; }
 
-/* 阅读器接管全屏时隐藏所有外壳 */
+/* 阅读器接管全屏时隐藏所有外壳。
+   这里刻意不用 display:none：那会让 #app 的 flex 布局整体重排
+   （.view 从 flex:1 变成不存在），iOS 上这一帧最容易整屏闪白。
+   阅读器是 fixed 全屏覆盖层，外壳只是被盖住，
+   visibility 切换不触发布局，也不会留下可点击的空洞。 */
 body.reading .tabbar,
-body.reading .view { display: none; }
+body.reading .view {
+  visibility: hidden;
+  pointer-events: none;
+}
 body.reading .fab-ext { display: none; }
 
-body.reading { background: var(--md-surface); }
+body.reading { background-color: var(--md-surface); }
 
 /* ------------------------------------------------------------
    6. 底部导航（MD3 Navigation Bar）

@@ -27,6 +27,7 @@ type Server struct {
 	mux    *http.ServeMux
 	img    *imageCache
 	jobs   *jobRegistry
+	cache  *responseCache
 
 	// 访问令牌可在运行时轮换，所以用读写锁保护
 	tokenMu sync.RWMutex
@@ -42,6 +43,7 @@ func New(cfg config.Config, st *store.Store, wk *wkk.Client, static fs.FS) *Serv
 		mux:    http.NewServeMux(),
 		img:    newImageCache(cfg.DataDir, cfg.AllowAnyImageHost),
 		jobs:   newJobRegistry(),
+		cache:  newResponseCache(cfg.CacheTTL, cfg.CacheSize),
 		token:  cfg.Token,
 	}
 	s.routes()
@@ -110,7 +112,8 @@ func (s *Server) routes() {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logger(s.auth(s.securityHeaders(s.cachePolicy(s.mux)))))
+	// auth 在最外层：未通过鉴权的请求不进缓存
+	return s.recoverer(s.logger(s.auth(s.securityHeaders(s.cachePolicy(s.cache.Middleware(s.mux))))))
 }
 
 // cachePolicy 区分「内容」与「状态」：

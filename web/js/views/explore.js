@@ -4,6 +4,7 @@
 // 未登录 wenku8 时接口返回 403 login_required，这里不报错，改为引导卡片。
 
 import { h, clear, coverImg } from '../core/dom.js';
+import { isRateLimited, showRateLimited, waitSeconds } from './rate-limit.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -42,7 +43,25 @@ const ICON = {
 
 /* ---------------- 模块级状态 ---------------- */
 
-let seg = 'rank';          // rank | tag | all
+// 默认进「分类」而不是「排行」。用户手动切过之后记在 localStorage，
+// 下次进探索页恢复上次那个 tab（脏数据 / 旧版本值回落到默认分类）。
+const SEG_KEY = 'hachi.explore.seg';
+const SEG_DEFAULT = 'tag';
+
+function readSeg() {
+  try {
+    const v = localStorage.getItem(SEG_KEY);
+    return SEGS.some(([k]) => k === v) ? v : SEG_DEFAULT;
+  } catch {
+    return SEG_DEFAULT; // 隐私模式下 localStorage 会抛错
+  }
+}
+
+function saveSeg(v) {
+  try { localStorage.setItem(SEG_KEY, v); } catch { /* 忽略 */ }
+}
+
+let seg = readSeg();       // rank | tag | all
 let rankSort = 'allvisit';
 let tagCur = '';           // 当前选中的标签
 let tagView = '';          // '' 默认 | '1' 热度 | '3' 仅动画化
@@ -56,9 +75,11 @@ let page = 1;
 let hasMore = false;
 let busy = true;           // 首屏 / 切换加载中
 let appending = false;     // 加载下一页中
-let blocked = null;        // null | 'login' | 'error'
+let blocked = null;        // null | 'login' | 'error' | 'limit'
 let errMsg = '';
 let footErr = false;       // 下一页加载失败
+let footLimit = false;     // 下一页被限流：只提示，不给重试
+let limitWait = 0;         // 429 时提示里的秒数
 
 let reqSeq = 0;
 let observer = null;
@@ -109,6 +130,8 @@ export default async function render(root, ctx) {
   blocked = null;
   errMsg = '';
   footErr = false;
+  footLimit = false;
+  limitWait = 0;
 
   const pageEl = h('div.explore-page');
   el.body = h('div.page-body');
@@ -152,6 +175,7 @@ function buildSeg() {
     const btn = e.target.closest ? e.target.closest('.vseg-item') : null;
     if (!btn || btn.dataset.seg === seg) return;
     seg = btn.dataset.seg;
+    saveSeg(seg);
     for (const b of wrap.children) {
       const on = b.dataset.seg === seg;
       b.classList.toggle('on', on);
@@ -255,7 +279,17 @@ async function loadTags() {
     if (alive) ctxRef.toast(errText(e));
   } finally {
     tagsLoading = false;
-    if (alive && seg === 'tag') buildPanel();
+    if (alive && seg === 'tag') {
+      // 默认进「分类」时还没有选中标签，列表会是空的。
+      // 这里自动选第一个标签，首屏直接有内容；用户手动选过就不会再触发。
+      if (!tagCur && tagsCache.length) {
+        tagCur = tagsCache[0];
+        buildPanel();
+        reload();
+        return;
+      }
+      buildPanel();
+    }
   }
 }
 
@@ -269,6 +303,7 @@ async function reload() {
   blocked = null;
   errMsg = '';
   footErr = false;
+  footLimit = false;
   busy = true;
   appending = false;
   paintList();
@@ -304,6 +339,29 @@ async function fetchPage(reset, seq) {
     busy = false;
     appending = false;
 
+    if (isRateLimited(e)) {
+      // 429：弹窗说明原因后停在「可操作但没内容」的状态。
+      // 不自动重试、不留「重试」按钮，用户可以继续切上面的 tab。
+      limitWait = waitSeconds(e);
+      showRateLimited(ctxRef, e, {
+        // 秒数被 /api/health 校准后，页面上的静态文案一起更新
+        onSeconds: (n) => {
+          limitWait = n;
+          if (alive && blocked === 'limit') paintList();
+        },
+      });
+      hasMore = false;
+      footErr = false;
+      if (reset) {
+        items = [];
+        blocked = 'limit';
+      } else {
+        footLimit = true;
+      }
+      paintList();
+      return;
+    }
+
     if (e?.code === 'login_required') {
       blocked = 'login';
       hasMore = false;
@@ -326,7 +384,7 @@ async function fetchPage(reset, seq) {
 }
 
 function loadMore() {
-  if (!alive || busy || appending || footErr || !hasMore || blocked) return;
+  if (!alive || busy || appending || footErr || footLimit || !hasMore || blocked) return;
   appending = true;
   paintFooter();
   fetchPage(false, reqSeq);
@@ -362,6 +420,14 @@ function paintList(newRows = null) {
     disconnectObserver();
     clear(el.list);
     el.list.appendChild(loginCard());
+    clear(el.footer);
+    return;
+  }
+
+  if (blocked === 'limit') {
+    disconnectObserver();
+    clear(el.list);
+    el.list.appendChild(limitCard());
     clear(el.footer);
     return;
   }
@@ -410,6 +476,11 @@ function paintList(newRows = null) {
 
 function paintFooter() {
   clear(el.footer);
+  if (footLimit) {
+    // 限流：只说明状态，不给「重试」入口
+    el.footer.appendChild(h('span.tiny', '已暂停加载，稍后再试'));
+    return;
+  }
   if (footErr) {
     el.footer.appendChild(h('button.load-more', { onclick: retryMore }, '加载失败，点这里重试'));
     return;
@@ -462,6 +533,15 @@ function loginCard() {
     h('div.gate-desc', '排行榜、分类和搜索都要读取 wenku8 的页面，服务端目前还没有登录。在设置里填好账号密码，回来就能用了。'),
     h('button.btn.primary.block', { onclick: () => ctxRef.navigate('/settings') }, '前往设置填写账号'),
     h('button.btn.ghost.block', { onclick: () => reload() }, '已经登录了，重试'),
+  ]);
+}
+
+function limitCard() {
+  return h('div.empty-soft', [
+    h('div.empty-ico', [ico(ICON.alert)]),
+    h('div.empty-title', '请求太频繁'),
+    h('div.empty-desc',
+      `wenku8 正在限流，${limitWait || 10} 秒后再试。可以先切换上面的分类，或稍后回到这一页。`),
   ]);
 }
 

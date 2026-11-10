@@ -14,7 +14,7 @@
 import { api, imgUrl, unlock, setToken, getToken } from './core/api.js';
 import { store, applyTheme } from './core/store.js';
 import { h, clear, $ } from './core/dom.js';
-import { parseHash, match, navigate, back, syncStack, takeAction } from './core/router.js';
+import { parseHash, match, navigate, back, syncStack, takeAction, remember } from './core/router.js';
 import './core/ripple.js';
 
 const ROUTES = [
@@ -290,6 +290,17 @@ async function boot() {
   } catch { /* 忽略 */ }
 
   addEventListener('hashchange', renderRoute);
+
+  // 底部导航原本是 <a href="#/x">，会绕过路由栈；统一走 navigate
+  tabbar.addEventListener('click', (e) => {
+    const a = e.target.closest('a.tab');
+    if (!a) return;
+    e.preventDefault();
+    navigate((a.getAttribute('href') || '').replace(/^#/, ''));
+  });
+
+  // 首次进入时把当前页记成来源，重载后 back() 才有兜底
+  remember();
 
   // Service Worker：开发模式绝不注册，还要清掉旧的，
   // 否则改 CSS/JS 刷新看到的永远是缓存里的旧版本。

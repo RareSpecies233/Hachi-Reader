@@ -47,21 +47,33 @@ export function navigate(to, { replace = false } = {}) {
   if (!replace) stack.push(cur);
   lastAction = replace ? 'replace' : 'push';
 
+  // 把「从哪来」写进 history.state：
+  // iOS 的 PWA 切后台常会整页重载，内存里的栈会清空，
+  // 但 history.state 会跟着这一条历史项保留下来，返回才不会一律掉到书架。
+  const state = { ...(history.state || {}), from: cur, hachiPath: next };
   if (replace) {
-    // 不新增浏览器历史项，避免堆重复 URL
-    history.replaceState(history.state, '', `#${next}`);
+    history.replaceState(state, '', `#${next}`);
     emit();
   } else {
-    location.hash = next;
+    // 不用 location.hash：那样无法同时写入 state
+    history.pushState(state, '', `#${next}`);
+    emit();
   }
 }
 
 /** 返回上一页：优先走应用内栈，栈空时去 fallback */
 export function back(fallback = '/shelf') {
-  const prev = stack.pop();
-  if (prev && prev !== currentPath()) {
+  const current = currentPath();
+  // 优先内存栈；重载后栈为空则用 history.state.from 兜底
+  let prev = stack.pop();
+  if (!prev || prev === current) {
+    const from = history.state?.from;
+    if (from && from !== current) prev = from;
+  }
+  if (prev && prev !== current) {
     lastAction = 'pop';
-    history.replaceState(history.state, '', `#${prev}`);
+    const state = { ...(history.state || {}), from: prev, hachiPath: prev };
+    history.replaceState(state, '', `#${prev}`);
     emit();
     return;
   }
@@ -76,6 +88,12 @@ export function syncStack(path = currentPath()) {
   if (stack.length && stack[stack.length - 1] === path) {
     stack.pop();
   }
+}
+
+/** 记录当前页面作为「来源」，供首次进入时使用 */
+export function remember(path = currentPath()) {
+  const state = { ...(history.state || {}), hachiPath: path };
+  history.replaceState(state, '', location.href);
 }
 
 /** 取出并重置本次变化来源（由 app.js 在渲染前调用） */

@@ -4,6 +4,7 @@
 // 主按钮按阅读进度切换「继续阅读 / 开始阅读」，次操作：加入书架 / 缓存 / 全部已读。
 
 import { h, clear, coverImg, fmtWordCount } from '../core/dom.js';
+import { isRateLimited, showRateLimited, waitSeconds } from './rate-limit.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -44,6 +45,34 @@ function ico(d, cls = 'ico') {
   path.setAttribute('d', d);
   svg.appendChild(path);
   return svg;
+}
+
+/** 详情页的错误态：只给「返回」，不伪造重试入口 */
+function bookErrPage(title, desc, actionLabel = '', onAction = null) {
+  return h('div.book-err', [
+    h('div.book-topbar', [
+      h('button.icon-btn', {
+        onclick: () => ctxRef.back('/shelf'),
+        title: '返回',
+        'aria-label': '返回',
+      }, [ico(ICON.back)]),
+    ]),
+    h('div.empty-soft', [
+      h('div.empty-ico.err', [ico(ICON.alert)]),
+      h('div.empty-title', title),
+      h('div.empty-desc', desc),
+      actionLabel ? h('button.btn', { onclick: onAction }, actionLabel) : null,
+    ]),
+  ]);
+}
+
+/** 统一的错误出口：429 弹窗（可关闭、无重试），其它照旧 toast */
+function report(e) {
+  if (isRateLimited(e)) {
+    showRateLimited(ctxRef, e);
+    return;
+  }
+  ctxRef.toast(errText(e));
 }
 
 function later(fn, ms = 0) {
@@ -143,21 +172,15 @@ async function load(page) {
   } catch (e) {
     if (!alive) return;
     clear(page);
-    page.appendChild(h('div.book-err', [
-      h('div.book-topbar', [
-        h('button.icon-btn', {
-          onclick: () => ctxRef.back('/shelf'),
-          title: '返回',
-          'aria-label': '返回',
-        }, [ico(ICON.back)]),
-      ]),
-      h('div.empty-soft', [
-        h('div.empty-ico.err', [ico(ICON.alert)]),
-        h('div.empty-title', '没能打开这本书'),
-        h('div.empty-desc', errText(e)),
-        h('button.btn', { onclick: () => load(page) }, '重试'),
-      ]),
-    ]));
+    if (isRateLimited(e)) {
+      // 429：弹窗说明原因；页面只留「返回」，不自动重试、不留重试按钮
+      const wait = waitSeconds(e);
+      showRateLimited(ctxRef, e);
+      page.appendChild(bookErrPage('请求太频繁',
+        `wenku8 正在限流，请等 ${wait} 秒后再试。稍后回到这一页即可。`));
+      return;
+    }
+    page.appendChild(bookErrPage('没能打开这本书', errText(e), '重试', () => load(page)));
   }
 }
 
@@ -441,7 +464,7 @@ async function doCache(btn, labelEl) {
     await ctxRef.api.cacheBook(book.id);
     ctxRef.toast('已加入整本缓存队列');
   } catch (e) {
-    ctxRef.toast(errText(e));
+    report(e);
   } finally {
     if (btn.isConnected) {
       btn.disabled = false;
@@ -462,7 +485,7 @@ async function markAllRead() {
     paintActions();
     ctxRef.toast('已标记全部已读');
   } catch (e) {
-    ctxRef.toast(errText(e));
+    report(e);
   }
 }
 
@@ -478,7 +501,7 @@ async function openShelfSheet() {
     const ent = Array.isArray(lib) ? lib.find((x) => String(x.book?.id) === String(book.id)) : null;
     memberShelves = ent ? (ent.shelves || []).map(String) : memberShelves;
   } catch (e) {
-    ctxRef.toast(errText(e));
+    report(e);
     return;
   }
 
@@ -533,7 +556,7 @@ async function openShelfSheet() {
           paintActions();
           ctxRef.toast('书架已更新');
         } catch (e) {
-          ctxRef.toast(errText(e));
+          report(e);
           return true; // 保持面板，便于重试
         }
         return false;

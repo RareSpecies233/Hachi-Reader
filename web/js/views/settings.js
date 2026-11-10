@@ -89,6 +89,66 @@ function selectRow(label, desc, options, current, onPick) {
   return row;
 }
 
+/* 主题：10 套配色平铺，每个选项一个 CSS 小圆点预览（主色 / 底色斜切）。
+   点一下就走 store.patchSettings({theme}) → applyTheme 写 <html data-theme>，
+   CSS 变量整体重算，界面上立刻换色，不需要刷新。 */
+const THEME_OPTIONS = [
+  { value: 'auto', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'sepia', label: '护眼米黄' },
+  { value: 'dark', label: '深色' },
+  { value: 'forest', label: '森林绿' },
+  { value: 'ocean', label: '海洋蓝' },
+  { value: 'sakura', label: '樱花粉' },
+  { value: 'violet', label: '暮紫' },
+  { value: 'indigo', label: '靛蓝' },
+  { value: 'slate', label: '石墨' },
+];
+
+function themePicker(ctx) {
+  let cur = ctx.store.settings.theme;
+  const opts = [];
+
+  const mark = () => {
+    for (const b of opts) {
+      const on = b.dataset.theme === cur;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+  };
+
+  const grid = h('div.theme-grid', { role: 'radiogroup', 'aria-label': '主题' });
+  for (const o of THEME_OPTIONS) {
+    const btn = h('button.theme-opt', {
+      type: 'button',
+      role: 'radio',
+      'aria-checked': 'false',
+      onclick: () => {
+        if (cur === o.value) return;
+        cur = o.value;
+        mark();
+        // 立即生效：patchSettings 内部会 applyTheme + emit('settings')
+        ctx.store.patchSettings({ theme: o.value });
+      },
+    }, [
+      h('span.theme-dot', { dataset: { k: o.value }, 'aria-hidden': 'true' }),
+      h('span.theme-name', o.label),
+    ]);
+    btn.dataset.theme = o.value;
+    opts.push(btn);
+    grid.appendChild(btn);
+  }
+  mark();
+
+  return h('div.theme-picker', [
+    h('div.theme-head', [
+      h('div.label', '主题'),
+      h('div.desc', '后 6 套是新增配色，选中后跟随系统深色自动切成同色相深版。'),
+    ]),
+    grid,
+  ]);
+}
+
 function toggleRow(label, desc, get, set) {
   const sw = h('button.switch', {
     role: 'switch',
@@ -249,12 +309,7 @@ function sectionAppearance(ctx) {
   const patch = (p) => ctx.store.patchSettings(p);
 
   return section('外观', [
-    selectRow('主题', null, [
-      { value: 'auto', label: '跟随系统' },
-      { value: 'light', label: '浅色' },
-      { value: 'sepia', label: '护眼米黄' },
-      { value: 'dark', label: '深色' },
-    ], s.theme, (v) => patch({ theme: v })),
+    themePicker(ctx),
 
     selectRow('背景纹理', '阅读器底纹', [
       { value: 'none', label: '无' },
