@@ -544,9 +544,17 @@ class ReaderApp {
       this.toggleHud();
       return;
     }
-    // 用户要求：左右两侧都向后翻，上一页只靠滑动/菜单完成。
-    if (x < w / 3 || x > (w * 2) / 3) this.mode?.nextPage?.();
-    else this.toggleHud();
+    // 默认左右两侧都向后翻；tapLeftPrev 打开后左 1/3 回到上一页
+    if (x < w / 3) {
+      if (this.settings.tapLeftPrev) this.mode?.prevPage?.();
+      else this.mode?.nextPage?.();
+      return;
+    }
+    if (x > (w * 2) / 3) {
+      this.mode?.nextPage?.();
+      return;
+    }
+    this.toggleHud();
   }
 
   onKeyDown(e) {
@@ -1227,29 +1235,12 @@ class ReaderApp {
       target,
       until: Date.now() + EXIT_INTENT_WINDOW,
     };
-
-    const hadGuard = this.guardPushed;
     this.guardPushed = false;     // 主动退出期间绝不再补哨兵
     clearTimeout(this.exitTimer);
 
-    if (hadGuard) {
-      // 跳过「守卫项 + 阅读项」，回到进入前的那一页
-      if (history.length > 2) {
-        try { history.go(-2); } catch { /* 忽略 */ }
-      } else {
-        this.leaveTo(target);
-      }
-    } else if (history.length > 1) {
-      try { history.back(); } catch { /* 忽略 */ }
-    } else {
-      this.leaveTo(target);
-    }
-
-    // iOS Safari 有时会吞掉 |delta| > 1 的历史遍历：400ms 后还在阅读器就强制离开。
-    this.exitTimer = setTimeout(() => {
-      if (this.destroyed) return;
-      this.leaveTo(target);
-    }, 460);
+    // 直接 replace 到详情页，不再依赖 history.go(-2)：
+    // iOS 会吞掉多格遍历，这正是"点返回却停在阅读界面/像刷新"的根因。
+    this.leaveTo(target);
   }
 
   leaveTo(target) {

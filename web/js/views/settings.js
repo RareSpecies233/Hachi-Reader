@@ -173,7 +173,7 @@ function sectionReading(ctx) {
 
     selectRow('正文字体', null, [
       { value: 'system', label: '系统默认（推荐）', desc: 'iOS 上为苹方 PingFang，缺字最少' },
-      { value: 'serif', label: '宋体（衬线）' },
+      { value: 'serif', label: '宋体（衬线）', desc: 'iOS 宋体覆盖有限，生僻字会回退；介意请用系统默认或上传字体' },
       { value: 'sans', label: '黑体（无衬线）' },
       ...(hasCustomFont() ? [{ value: 'custom', label: '自定义字体' }] : []),
     ], s.fontFamily, (v) => patch({ fontFamily: v })),
@@ -609,6 +609,7 @@ async function sectionToken(ctx) {
     onclick: async () => {
       if (!(await ctx.confirm('清除本机令牌？下次需要重新输入。'))) return;
       try { await ctx.api.lock(); } catch { /* 忽略 */ }
+      try { localStorage.removeItem('hachi.token'); } catch { /* 忽略 */ }
       location.reload();
     },
   }, '本机退出');

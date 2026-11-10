@@ -11,10 +11,10 @@
 //   imgUrl(raw), refreshShell()
 // }
 
-import { api, imgUrl, unlock } from './core/api.js';
+import { api, imgUrl, unlock, setToken, getToken } from './core/api.js';
 import { store, applyTheme } from './core/store.js';
 import { h, clear, $ } from './core/dom.js';
-import { parseHash, match, navigate, back } from './core/router.js';
+import { parseHash, match, navigate, back, syncStack, takeAction } from './core/router.js';
 import './core/ripple.js';
 
 const ROUTES = [
@@ -133,10 +133,36 @@ function showGate(reason = '') {
     btn.textContent = '正在验证…';
     err.textContent = '';
     try {
+      // 首选：换成 HttpOnly Cookie（后续请求自动携带）
       await unlock(val);
+      try {
+        await api.shelves();
+        location.reload();
+        return;
+      } catch (verifyErr) {
+        // Cookie 没被浏览器接受（iOS 独立 PWA 的存储隔离、隐私模式、第三方 Cookie 限制等）
+        // 退回 Bearer：把令牌存在本地，由请求头携带，保证一定能进。
+        if (verifyErr.status !== 401) throw verifyErr;
+      }
+    } catch (e) {
+      if (e.status !== 401) {
+        err.textContent = e.message || '验证失败';
+        btn.disabled = false;
+        btn.textContent = '解锁';
+        return;
+      }
+    }
+
+    setToken(val);
+    try {
+      await api.shelves();
+      err.textContent = '';
       location.reload();
     } catch (e) {
-      err.textContent = e.status === 401 ? '令牌不正确，请重新从服务端日志复制' : (e.message || '验证失败');
+      setToken('');
+      err.textContent = e.status === 401
+        ? '令牌不正确，请从服务端启动日志重新复制'
+        : (e.message || '验证失败');
       btn.disabled = false;
       btn.textContent = '解锁';
     }
@@ -179,6 +205,9 @@ function setActiveTab(name) {
 
 async function renderRoute() {
   const { segments, query } = parseHash();
+
+  // 浏览器前进/后退（外部变化）才同步栈；应用内跳转自己已经维护好了
+  if (takeAction() === 'external') syncStack();
 
   let matched = null;
   for (const r of ROUTES) {
@@ -297,6 +326,12 @@ async function teardownServiceWorker() {
   } catch {
     /* 忽略：非安全上下文等情况下本来也没有 SW */
   }
+}
+
+/** 清除本机所有令牌痕迹（Cookie 由服务端 /api/lock 清） */
+export function forgetToken() {
+  setToken('');
+  try { document.cookie = 'hachi_token=; Max-Age=0; Path=/'; } catch { /* 忽略 */ }
 }
 
 /** 处理令牌门禁。返回 false 表示已被挡住，不应继续渲染路由。 */

@@ -8,7 +8,7 @@ import { api } from './api.js';
 import { store } from './store.js';
 
 // 与 base.css 的 --font-read 保持一致的兜底栈
-const FALLBACK = '"Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "YuMincho", serif';
+const FALLBACK = '"Songti SC", "STSong", "Songti TC", "Noto Serif CJK SC", serif';
 const STYLE_ID = 'hachi-custom-font';
 const FAMILY = 'HachiCustom';
 

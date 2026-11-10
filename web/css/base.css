@@ -29,8 +29,9 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
              "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei",
              system-ui, sans-serif;
-  --font-read: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC",
-               "STSong", "YuMincho", "Hiragino Mincho ProN", serif;
+  --font-read: "Songti SC", "STSong", "Songti TC", "Source Han Serif SC", serif;
+  /* 注意：这里刻意不放日文明朝体。宋体缺字时掉到日文字形，
+     会让同一个字出现两种写法，是"字体降级"观感的主要来源。 */
 
   --md-font-display-large: 400 3.5625rem/4rem var(--font-ui);
   --md-font-display-medium: 400 2.8125rem/3.25rem var(--font-ui);
@@ -656,13 +657,12 @@ body.reading { background: var(--md-surface); }
     var(--md-surface-container-highest) 37%,
     var(--md-surface-container-high) 63%
   );
-  background-size: 400% 100%;
-  animation: shimmer 1.4s ease infinite;
+  /* 之前是发光脉冲 + 大面积 shimmer，点导航会整屏闪一下。
+     改成与 surface 同层的静态占位：仍然提示"正在加载"，但不再抢注意力。 */
+  background: var(--md-surface-container);
+  opacity: .55;
+  animation: none;
   border-radius: var(--md-shape-sm);
-}
-@keyframes shimmer {
-  0% { background-position: 100% 50%; }
-  100% { background-position: 0 50%; }
 }
 
 /* ------------------------------------------------------------
