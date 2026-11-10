@@ -6,8 +6,8 @@
 
 :root {
   /* 纸张纹理：内联 SVG，feTurbulence 生成噪点，不依赖外链 */
-  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
-  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='-1' intercept='1'/%3E%3CfeFuncG type='linear' slope='-1' intercept='1'/%3E%3CfeFuncB type='linear' slope='-1' intercept='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='.13'/%3E%3C/svg%3E");
+  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.32' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncG type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncB type='linear' slope='2.2' intercept='-0.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.62'/%3E%3C/svg%3E");
+  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.32' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='-2.2' intercept='1.6'/%3E%3CfeFuncG type='linear' slope='-2.2' intercept='1.6'/%3E%3CfeFuncB type='linear' slope='-2.2' intercept='1.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------- 根容器 */
@@ -67,6 +67,8 @@
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
   background-image: var(--r-paper-tex);
+  background-size: 240px 240px;
+  background-repeat: repeat;
 }
 .reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
@@ -951,17 +953,18 @@
   inset: 0;
   z-index: 3;
   display: flex;
-  align-items: center;
+  /* 顶部对齐 + 收窄：让屏幕左右与下方都能看到真实边距 */
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: calc(env(safe-area-inset-top, 0px) + 7vh) 12px calc(12px + env(safe-area-inset-bottom, 0px));
 }
 .r-margin-catcher { position: absolute; inset: 0; }
 .r-margin-card {
   position: relative;
-  width: min(360px, 92vw);
-  max-height: 86dvh;
+  width: min(300px, 76vw);
+  max-height: 74dvh;
   overflow-y: auto;
-  padding: 20px 20px 14px;
+  padding: 16px 16px 12px;
   border-radius: var(--md-shape-xl);
   background: var(--md-surface-container-high);
   box-shadow: var(--md-elevation-3);
@@ -1004,3 +1007,78 @@
 .r-sheet.compact .r-sheet-head { padding-bottom: 2px; }
 .r-sheet.compact .r-set-group { padding: 0; }
 .r-sheet.compact .r-set-group-title { padding: 2px 12px 2px; }
+
+/* ---------------------------------------------------------------- 正文字体子面板 */
+
+.r-font-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface-container-high);
+  border-radius: var(--md-shape-lg);
+  overflow: hidden;
+}
+.r-font-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--md-on-surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.r-font-item + .r-font-item { border-top: 1px solid var(--md-outline-variant); }
+.r-font-item:active { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
+.r-font-item.on { background: color-mix(in srgb, var(--md-primary) 10%, transparent); }
+
+.r-font-dot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--md-outline);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.r-font-item.on .r-font-dot { border-color: var(--md-primary); }
+.r-font-item.on .r-font-dot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--md-primary);
+}
+
+.r-font-main { flex: 1 1 auto; min-width: 0; }
+.r-font-name {
+  font: var(--md-font-body-large);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.r-font-desc {
+  margin-top: 2px;
+  font: var(--md-font-body-small);
+  line-height: 1.45;
+  color: var(--md-on-surface-variant);
+}
+.r-font-check { flex: 0 0 auto; color: var(--md-primary); font-weight: 700; }
+
+.r-font-empty {
+  padding: 14px 16px;
+  font: var(--md-font-body-small);
+  line-height: 1.6;
+  color: var(--md-on-surface-variant);
+}
+.r-font-warn {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: var(--md-shape-md);
+  background: color-mix(in srgb, var(--md-error-container) 72%, transparent);
+  color: var(--md-on-error-container);
+  font: var(--md-font-body-small);
+  line-height: 1.55;
+}

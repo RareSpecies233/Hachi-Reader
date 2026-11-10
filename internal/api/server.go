@@ -98,10 +98,17 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/cache", s.handleCacheInfo)
 	m.HandleFunc("DELETE /api/cache/{id}", s.handleClearCache)
 
+	// 字体库：多字体上传/列表/删除/取文件
+	m.HandleFunc("GET /api/fonts", s.handleFontsList)
+	m.HandleFunc("POST /api/fonts", s.handleFontUpload)
+	m.HandleFunc("DELETE /api/fonts/{id}", s.handleFontDelete)
+	m.HandleFunc("GET /api/fonts/{id}/file", s.handleFontFile)
+
+	// 旧版单字体接口：映射到字体库里的第一个字体，老客户端仍可用
 	m.HandleFunc("GET /api/font", s.handleFontInfo)
-	m.HandleFunc("GET /api/font/file", s.handleFontFile)
-	m.HandleFunc("POST /api/font", s.handleFontUpload)
-	m.HandleFunc("DELETE /api/font", s.handleFontDelete)
+	m.HandleFunc("GET /api/font/file", s.handleLegacyFontFile)
+	m.HandleFunc("POST /api/font", s.handleLegacyFontUpload)
+	m.HandleFunc("DELETE /api/font", s.handleLegacyFontDelete)
 
 	m.HandleFunc("GET /api/settings", s.handleGetSettings)
 	m.HandleFunc("PUT /api/settings", s.handlePutSettings)

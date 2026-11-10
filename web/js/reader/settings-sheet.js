@@ -13,7 +13,9 @@
 
 import { h, clear } from '../core/dom.js';
 import { PALETTES, paperOpacity, paletteOf, resolveMode } from '../core/store.js';
-import { hasCustomFont } from '../core/fonts.js';
+import {
+  listFonts, selectFont, selectFamily, describeFamily, serifStatus, refreshFonts,
+} from '../core/fonts.js';
 import { RULES_KEY, reloadRules, computeMargins } from './typography.js';
 
 /* ---------------- 面板栈 ---------------- */
@@ -260,10 +262,11 @@ function mainBody() {
   };
   syncSummary();
   cleanups.push(appRef.store.on('settings', syncSummary));
+  cleanups.push(appRef.store.on('settings', syncFontNav));
 
   /* 字体 */
   const fontGroup = group('字体', [
-    fontSeg(),
+    fontNavRow(),
     navRow('排版', '字号 · 行距 · 字距 · 段首缩进', typoVal, () => openTypography()),
     switchRow('自动边距', '按屏幕宽度计算舒适留白', 'autoMargin'),
     navRow('手动边距', s.autoMargin ? '进入后自动关闭自动边距' : '上下左右四边留白',
@@ -319,34 +322,117 @@ function mainBody() {
   return h('div', [fontGroup, modeGroup, hudGroup, lookGroup, textGroup]);
 }
 
-function fontSeg() {
-  const seg = h('div.seg');
-  const opts = [
-    { value: 'system', label: '系统' },
-    { value: 'serif', label: '宋体' },
-    { value: 'sans', label: '黑体' },
-  ];
-  if (hasCustomFont()) opts.push({ value: 'custom', label: '自定义' });
-  for (const o of opts) {
-    const btn = h('button.seg-item', {
-      dataset: { v: o.value },
-      onclick: () => {
-        patch({ fontFamily: o.value });
-        for (const b of seg.children) b.classList.toggle('active', b.dataset.v === o.value);
-      },
-    }, o.label);
-    if (settings().fontFamily === o.value) btn.classList.add('active');
-    seg.appendChild(btn);
+/* ---------------- 正文字体子面板 ---------------- */
+
+let fontNavValueEl = null;
+let fontNavDescEl = null;
+
+function fontHint() {
+  const s = settings();
+  const serif = serifStatus();
+  if (s.fontFamily === 'serif' && !serif.family) {
+    return '当前设备没有可用的宋体，建议换系统默认或上传字体';
   }
-  return h('div.setting-slider', [
-    h('div.row-label', [
-      h('div.grow', [
-        h('div.label', '正文字体'),
-        h('div.desc', '系统默认在 iOS 上是苹方，缺字最少'),
-      ]),
+  return '系统默认在 iOS 上是苹方，缺字最少；宋体会先探测设备支持';
+}
+
+function syncFontNav() {
+  if (fontNavValueEl) fontNavValueEl.textContent = describeFamily();
+  if (fontNavDescEl) fontNavDescEl.textContent = fontHint();
+}
+
+function fontNavRow() {
+  const val = h('span.muted.small', describeFamily());
+  const desc = h('div.desc', fontHint());
+  fontNavValueEl = val;
+  fontNavDescEl = desc;
+  return h('button.row.act-row', { onclick: () => openFontPanel() }, [
+    h('div.grow', [
+      h('div.label', '正文字体'),
+      desc,
     ]),
-    seg,
+    val,
+    h('span.chev', '›'),
   ]);
+}
+
+function openFontPanel() {
+  const host = h('div');
+  const panel = openPanel({ title: '正文字体', scrim: 'normal', body: host });
+  const paint = () => {
+    clear(host);
+    host.appendChild(fontPanelBody());
+  };
+  paint();
+  // 打开时和服务端对齐一次：可能在设置页刚上传过字体
+  refreshFonts().then(() => {
+    if (!document.contains(panel)) return;
+    paint();
+    syncFontNav();
+  }).catch(() => {});
+}
+
+function fontPanelBody() {
+  const list = h('div.r-font-list');
+  const serif = serifStatus();
+
+  const render = () => {
+    clear(list);
+    const s = settings();
+
+    const add = (name, desc, active, onPick) => {
+      list.appendChild(h('button.r-font-item' + (active ? '.on' : ''), {
+        type: 'button',
+        role: 'radio',
+        'aria-checked': String(active),
+        onclick: () => {
+          onPick();
+          render();
+          syncFontNav();
+        },
+      }, [
+        h('span.r-font-dot', { 'aria-hidden': 'true' }),
+        h('div.r-font-main', [
+          h('div.r-font-name', name),
+          desc ? h('div.r-font-desc', desc) : null,
+        ]),
+        active ? h('span.r-font-check', '✓') : null,
+      ]));
+    };
+
+    add('系统默认', 'iOS 上为苹方 PingFang，缺字最少',
+      s.fontFamily === 'system', () => selectFamily('system'));
+    add('宋体（衬线）',
+      serif.family
+        ? `已探测到可用宋体：${serif.family}`
+        : '当前设备没有可用的宋体，选择后会保持系统字体',
+      s.fontFamily === 'serif', () => selectFamily('serif'));
+    add('黑体（无衬线）', null,
+      s.fontFamily === 'sans', () => selectFamily('sans'));
+
+    for (const f of listFonts()) {
+      add(f.name, `${fmtBytes(f.size)} · ${String(f.ext).toUpperCase()} · 自定义`,
+        s.fontFamily === 'custom' && s.customFontId === f.id,
+        () => selectFont(f.id));
+    }
+
+    if (!listFonts().length) {
+      list.appendChild(h('div.r-font-empty', '还没有上传字体，可在「设置 → 自定义字体」里上传。'));
+    }
+    if (!serif.family) {
+      list.appendChild(h('div.r-font-warn', '当前设备没有可用的宋体，建议上传自定义字体。'));
+    }
+  };
+
+  render();
+  return list;
+}
+
+function fmtBytes(n) {
+  const v = Number(n) || 0;
+  if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`;
+  if (v >= 1024) return `${Math.round(v / 1024)} KB`;
+  return `${v} B`;
 }
 
 /* 纸张强度：滑块 + 实时预览（与设置页同一套 class） */
@@ -397,10 +483,13 @@ function paperBlock() {
 /* ---------------- 排版子 sheet（靠下、小） ---------------- */
 
 function openTypography() {
+  // 进入排版/边距时切到无菜单模式，方便直接预览正文变化
+  appRef?.toggleHud?.(false);
   openPanel({
     title: '排版',
     compact: true,
     scrim: 'soft',
+    onClose: () => appRef?.toggleHud?.(true),
     body: group('文字排版', [
       sliderBlock('字号', null, 'fontSize', { min: 14, max: 32, step: 1, format: (v) => `${v}px` }),
       sliderBlock('行距', null, 'lineHeight', { min: 1.3, max: 2.6, step: 0.05, format: (v) => Number(v).toFixed(2) }),
@@ -413,6 +502,7 @@ function openTypography() {
 /* ---------------- 边距弹窗（无 scrim，背景不变暗） ---------------- */
 
 function openMargins() {
+  appRef?.toggleHud?.(false);
   if (settings().autoMargin) {
     // 用当前自动边距作为手动模式的初值，避免一进弹窗正文突然贴边
     const m = computeMargins(settings());

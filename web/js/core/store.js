@@ -45,7 +45,8 @@ export const DEFAULT_SETTINGS = {
   // 排版
   fontSize: 19,          // px
   lineHeight: 1.85,      // 倍
-  fontFamily: 'system',  // system | serif | sans | custom
+  fontFamily: 'system',
+  customFontId: '',   // 已上传字体里选中的那个  // system | serif | sans | custom
   letterSpacing: 0,      // px
   paragraphIndent: 2,    // em
   // 边距（px，0 = 自动）
@@ -184,8 +185,9 @@ export function resolveMode(s = store.settings) {
 export function paperOpacity(s = store.settings) {
   const v = clamp(Number(s.paperStrength ?? DEFAULT_PAPER_STRENGTH), 0, 1);
   if (v <= 0) return 0;
-  const base = resolveMode(s) === 'dark' ? 0.03 : 0.04;
-  const gain = resolveMode(s) === 'dark' ? 0.18 : 0.20;
+  // 之前 0.04+0.20 几乎不可见（尤其 2x/3x 屏）。上调后 0→0、50%→~0.2、100%→~0.34
+  const base = resolveMode(s) === 'dark' ? 0.05 : 0.07;
+  const gain = resolveMode(s) === 'dark' ? 0.28 : 0.30;
   return Number((base + v * gain).toFixed(3));
 }
 

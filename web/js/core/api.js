@@ -155,7 +155,12 @@ export const api = {
   loginWithCookie: (cookie) =>
     request('/api/login', { method: 'POST', body: { cookie } }),
 
-  // 自定义字体
+  // 自定义字体（多字体库）
+  fonts: () => request('/api/fonts'),
+  uploadFonts: (file) => uploadMultipart('/api/fonts', file),
+  removeFontById: (id) => request(`/api/fonts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // 旧单字体接口（服务端仍映射到列表首条）
   fontInfo: () => request('/api/font'),
   uploadFont: (file) => uploadMultipart('/api/font', file),
   deleteFont: () => request('/api/font', { method: 'DELETE' }),

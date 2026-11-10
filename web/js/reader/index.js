@@ -172,7 +172,7 @@ class ReaderApp {
     this.loadCtl = null;
 
     this.timeTimer = 0;
-    this.hudVisible = true;
+    this.hudVisible = false;   // 默认进入沉浸式，需要时点中间唤出
     this.lastTradToSimp = false;
     this.lastPrefetchN = 3;
     this.rulesTimer = 0;
@@ -244,8 +244,9 @@ class ReaderApp {
   buildSkeleton() {
     clear(this.root);
     this.root.classList.add('reader-root');
-    this.root.classList.remove('hud-hidden');
-    this.root.classList.add('hud-visible');
+    // 尊重初始状态：默认进入沉浸阅读（无菜单），点中间才唤出
+    this.root.classList.toggle('hud-hidden', !this.hudVisible);
+    this.root.classList.toggle('hud-visible', this.hudVisible);
 
     this.bg = h('div.reader-bg');
     this.stage = h('div.reader-stage');
@@ -527,10 +528,12 @@ class ReaderApp {
     if (x < w / 3) {
       if (this.settings.tapLeftPrev) this.mode?.prevPage?.();
       else this.mode?.nextPage?.();
+      this.hideHudAfterTurn();
       return;
     }
     if (x > (w * 2) / 3) {
       this.mode?.nextPage?.();
+      this.hideHudAfterTurn();
       return;
     }
     this.toggleHud();
@@ -548,11 +551,13 @@ class ReaderApp {
       case ' ':
         e.preventDefault();
         this.mode?.nextPage?.();
+        this.hideHudAfterTurn();
         break;
       case 'ArrowLeft':
       case 'PageUp':
         e.preventDefault();
         this.mode?.prevPage?.();
+        this.hideHudAfterTurn();
         break;
       case 'Escape':
         this.toggleHud();
@@ -880,6 +885,11 @@ class ReaderApp {
     const idx = Number(ch.index) || 0;
     const p = (idx + this.progress) / Math.max(1, total);
     return Math.max(0, Math.min(100, Math.round(p * 100)));
+  }
+
+  /** 翻页后自动收起菜单（用户要求：点下一页/上一页就回到沉浸阅读） */
+  hideHudAfterTurn() {
+    if (this.hudVisible) this.toggleHud(false);
   }
 
   toggleHud(show) {

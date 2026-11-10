@@ -266,22 +266,35 @@
 
 `POST /api/login` 除 `{username,password}` 外，也接受 `{cookie}` 直接注入 Cookie 头（账号登录遇到验证码时使用），成功后保存到 `data/wenku8.cookie`。
 
-## 自定义字体接口
+## 字体库接口
+
+字体保存在 `data/fonts/`：文件 `<id>.<ext>` + `index.json`（`[{id,name,ext,size,addedAt}]`）。
+旧版单字体数据（`custom.*` + `meta.json`）会在首次读取时自动迁移成一条记录。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/font` | `{ font: {name, ext, size, updatedAt} \| null }`，**no-store** |
-| GET | `/api/font/file` | 字体文件本体，`font/ttf` 等，长缓存 + ETag |
-| POST | `/api/font` | `multipart/form-data`，字段 `file`，上限 80MB，按魔数校验格式 |
-| DELETE | `/api/font` | 删除自定义字体 |
+| GET | `/api/fonts` | `{ fonts: [{id,name,ext,size,addedAt}] }`，**no-store** |
+| POST | `/api/fonts` | `multipart/form-data`，字段 `file`；上限 80MB，按魔数校验格式；同名（忽略大小写）视为替换并沿用原 id；返回 `{ font, fonts, replaced }` |
+| DELETE | `/api/fonts/{id}` | 删除一个字体，返回 `{ ok: true, fonts: [...] }`；不存在返回 404 |
+| GET | `/api/fonts/{id}/file` | 字体文件本体（`font/ttf` 等），长缓存 + ETag；前端 URL 带 `?v=<addedAt>`，内容变化时 URL 跟着变 |
 
-前端拿到元信息后用 `@font-face` 注入 `HachiCustom`，并把 `--font-read` 覆盖为 `"HachiCustom", <原字体栈>`，因此缺字时仍会降级到系统字体，但优先命中上传字体。
+兼容接口（都映射到列表里的第一个字体，老客户端仍可用）：`GET /api/font`、`GET /api/font/file`、`POST /api/font`、`DELETE /api/font`。
+
+前端为每个字体注入 `@font-face { font-family: "HachiFont-<id>" }`，选中项存在 `settings.customFontId`，
+`--font-read` 覆盖为 `"HachiFont-<id>", <衬线栈>`。
+
+**衬线字体运行时探测**：iOS WebKit 不一定暴露 `"Songti SC"` 这个 family 名，直接写 CSS 会整篇落到 PingFang。
+前端用 canvas 以 `64px "<候选>"` 与两个参考系（必然缺失的字体、`"PingFang SC"`）各画同一个汉字，
+比较 ImageData 的 alpha 签名：与任一参考系完全相同即视为没命中。候选覆盖 `Songti SC`、
+`STSongti-SC-Regular`、`STSongti-SC`、`STSong`、`Songti TC`、`Kaiti SC`、`Hiragino Mincho ProN`，
+取第一个真正命中的 family 拼进 `--font-read`；一个都没有时保持系统字体并提示上传自定义字体。
+结果缓存在 `localStorage['hachi.fontprobe.v1']`（候选列表/算法版本变化时自动失效重算）。
 
 ## 缓存语义
 
 服务端按接口语义显式区分，供 Service Worker 与浏览器正确缓存：
 
 - **可缓存**（内容类）：`/api/book/*`（不含 `/state`、`/read`）、`/api/explore/*`、`/api/search`、`/api/tags`、`/api/img`
-- **`Cache-Control: no-store`**（状态/机密类）：`/api/health`、`/api/token*`、`/api/unlock`、`/api/lock`、`/api/font*`、`/api/shelves*`、`/api/library`、`/api/updates*`、`/api/cache*`、`/api/settings`、`/api/stats/*`
+- **`Cache-Control: no-store`**（状态/机密类）：`/api/health`、`/api/token*`、`/api/unlock`、`/api/lock`、`/api/font*`（字体列表与上传；`/api/fonts/{id}/file` 本身走长缓存）、`/api/shelves*`、`/api/library`、`/api/updates*`、`/api/cache*`、`/api/settings`、`/api/stats/*`
 
 不区分会出现"加了书但书架不更新"这类幽灵问题。

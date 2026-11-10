@@ -89,7 +89,9 @@ input.range {
       var(--md-primary) 0 var(--p, 50%),
       var(--md-surface-container-highest) var(--p, 50%) 100%
     )
-    no-repeat center / 100% 4px;
+    /* 关键：圆点宽 20px，实际行程是「宽度-20px」，起点偏移 10px。
+       之前按 100% 宽画填充，两端各偏半个圆点——圆点对、实线不对。 */
+    no-repeat 10px center / calc(100% - 20px) 4px;
   outline: none;
   cursor: pointer;
   touch-action: pan-y;
@@ -621,3 +623,85 @@ input.range::-moz-focus-outer { border: 0; }
 .paper-block { border-top: 1px solid var(--md-outline-variant); }
 .paper-block .setting-slider { padding-bottom: 10px; }
 .card > .paper-block + .row { border-top: 1px solid var(--md-outline-variant); }
+
+/* ------------------------------------------------------------
+   12. 字体库（设置页）
+   ------------------------------------------------------------ */
+
+.font-panel { border-top: 1px solid var(--md-outline-variant); }
+.font-list { display: flex; flex-direction: column; }
+.font-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--md-on-surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.font-item + .font-item { border-top: 1px solid var(--md-outline-variant); }
+.font-item:active { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
+.font-item.on { background: color-mix(in srgb, var(--md-primary) 8%, transparent); }
+
+.font-radio {
+  position: relative;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--md-outline);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.font-item.on .font-radio { border-color: var(--md-primary); }
+.font-item.on .font-radio::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--md-primary);
+}
+
+.font-item .grow .label {
+  font: var(--md-font-body-large);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-item .grow .desc {
+  margin-top: 2px;
+  font: var(--md-font-body-small);
+  line-height: 1.45;
+  color: var(--md-on-surface-variant);
+}
+
+.font-del {
+  flex: 0 0 auto;
+  padding: 4px 11px;
+  border: 1px solid color-mix(in srgb, var(--md-error) 40%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--md-error);
+  font: var(--md-font-label-medium);
+  cursor: pointer;
+}
+.font-del:active { background: color-mix(in srgb, var(--md-error) 10%, transparent); }
+
+.font-empty {
+  padding: 14px;
+  font: var(--md-font-body-small);
+  line-height: 1.6;
+  color: var(--md-on-surface-variant);
+}
+.font-hint { padding: 2px 14px 10px; }
+.font-warn {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--md-error-container) 72%, transparent);
+  color: var(--md-on-error-container);
+  font: var(--md-font-body-small);
+  line-height: 1.55;
+}

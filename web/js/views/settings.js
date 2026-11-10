@@ -2,7 +2,10 @@
 // 负责阅读偏好、wenku8 账号、缓存与数据管理。
 
 import { h, clear } from '../core/dom.js';
-import { hasCustomFont, currentFont, uploadFont, removeFont } from '../core/fonts.js';
+import {
+  listFonts, uploadFont, removeFont, selectFont, selectFamily,
+  describeFamily, serifStatus, refreshFonts,
+} from '../core/fonts.js';
 import { PALETTES, paperOpacity, resolveMode } from '../core/store.js';
 
 let ctxRef = null;
@@ -93,6 +96,86 @@ function selectRow(label, desc, options, current, onPick) {
   row.appendChild(valEl);
   row.appendChild(h('span.chev', '›'));
   return row;
+}
+
+/* 正文字体：一行入口，点开是「系统默认 / 宋体 / 黑体 / 已上传字体」列表。
+   宋体是否真的可用由 core/fonts.js 运行时探测，不可用时这里直接提示。 */
+let fontRowRefresh = () => {};
+
+function fontFamilyRow(ctx) {
+  const st = () => ctx.store.settings;
+  const valEl = h('span.muted.small');
+  const descEl = h('div.desc');
+  const row = h('div.row', {
+    onclick: () => openFamilySheet(ctx),
+  }, [
+    h('div.grow', [h('div.label', '正文字体'), descEl]),
+    valEl,
+    h('span.chev', '›'),
+  ]);
+
+  function sync() {
+    const fam = st().fontFamily;
+    valEl.textContent = describeFamily(fam);
+    const serif = serifStatus();
+    descEl.textContent = fam === 'serif' && !serif.family
+      ? '当前设备没有可用的宋体，建议改用系统默认或上传自定义字体'
+      : '系统默认最省心；选宋体前会先探测设备是否真的支持';
+  }
+  sync();
+  fontRowRefresh = sync;
+  storeUnsubs.push(ctx.store.on('settings', sync));
+  return row;
+}
+
+function openFamilySheet(ctx) {
+  const st = () => ctx.store.settings;
+  const list = h('div');
+  const serif = serifStatus();
+
+  const choices = [
+    { key: 'system', label: '系统默认（推荐）', desc: 'iOS 上为苹方 PingFang，缺字最少' },
+    {
+      key: 'serif',
+      label: '宋体（衬线）',
+      desc: serif.family
+        ? `已探测到可用宋体：${serif.family}`
+        : '当前设备没有可用的宋体，选择后会保持系统字体',
+    },
+    { key: 'sans', label: '黑体（无衬线）' },
+  ];
+
+  for (const o of choices) {
+    const active = st().fontFamily === o.key;
+    list.appendChild(h('div.row', {
+      style: active ? { color: 'var(--accent)' } : null,
+      onclick: () => { selectFamily(o.key); ctx.closeSheet(); },
+    }, [
+      h('div.grow', [h('div.label', o.label), o.desc ? h('div.desc', o.desc) : null]),
+      active ? h('span.chev', '✓') : null,
+    ]));
+  }
+
+  for (const f of listFonts()) {
+    const active = st().fontFamily === 'custom' && st().customFontId === f.id;
+    list.appendChild(h('div.row', {
+      style: active ? { color: 'var(--accent)' } : null,
+      onclick: () => { selectFont(f.id); ctx.closeSheet(); },
+    }, [
+      h('div.grow', [
+        h('div.label', f.name),
+        h('div.desc', `${fmtBytes(f.size)} · ${String(f.ext).toUpperCase()} · 自定义`),
+      ]),
+      active ? h('span.chev', '✓') : null,
+    ]));
+  }
+
+  if (!listFonts().length) {
+    list.appendChild(h('div.desc.small.muted', { style: { padding: '10px 14px' } },
+      '还没有上传字体。可在下方「自定义字体」里上传。'));
+  }
+
+  ctx.sheet({ title: '正文字体', body: list });
 }
 
 /* 主题：跟随系统 + 深/浅 + 14 套 MD3 配色。
@@ -311,12 +394,7 @@ function sectionReading(ctx) {
       onInput: (v) => patch({ paragraphIndent: v }),
     }),
 
-    selectRow('正文字体', null, [
-      { value: 'system', label: '系统默认（推荐）', desc: 'iOS 上为苹方 PingFang，缺字最少' },
-      { value: 'serif', label: '宋体（衬线）', desc: 'iOS 宋体覆盖有限，生僻字会回退；介意请用系统默认或上传字体' },
-      { value: 'sans', label: '黑体（无衬线）' },
-      ...(hasCustomFont() ? [{ value: 'custom', label: '自定义字体' }] : []),
-    ], s.fontFamily, (v) => patch({ fontFamily: v })),
+    fontFamilyRow(ctx),
 
     toggleRow('自动边距', '根据屏幕自动计算舒适留白', () => s.autoMargin,
       (v) => patch({ autoMargin: v })),
@@ -399,64 +477,118 @@ function sectionAppearance(ctx) {
 /* ---------------------------------------------------------------- 自定义字体 */
 
 function sectionFont(ctx) {
-  const cur = currentFont();
+  const listBox = h('div.font-list');
+  const hintBox = h('div.font-hint');
+  let busy = false;
 
   const fileInput = h('input', {
     type: 'file',
     accept: '.ttf,.otf,.woff,.woff2,font/*',
     style: { display: 'none' },
   });
+
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
-    if (!file) return;
+    if (!file || busy) return;
+    busy = true;
     ctx.toast('正在上传字体…', 4000);
     try {
-      await uploadFont(file);
-      ctx.toast('字体已上传并启用');
-      setTimeout(() => ctx.navigate('/settings'), 500);
+      const res = await uploadFont(file);
+      ctx.toast(res.replaced ? '已替换同名字体并启用' : '字体已上传并启用');
+      paint();
+      fontRowRefresh();
     } catch (e) {
       ctx.toast(e.message || '上传失败');
     } finally {
+      busy = false;
       fileInput.value = '';
     }
   });
 
-  const rows = [
-    h('div.row', [
-      h('div.grow', [
-        h('div.label', cur ? cur.name : '未使用自定义字体'),
-        h('div.desc', cur
-          ? `${fmtBytes(cur.size)} · ${String(cur.ext).toUpperCase()} · 已应用到阅读器`
-          : '遇到生僻字时浏览器会逐字降级，一行里可能出现多种字形'),
-      ]),
-      h('span.muted.small', cur ? '已就绪' : ''),
+  const uploadRow = h('div.row', { onclick: () => fileInput.click() }, [
+    h('div.grow', [
+      h('div.label', '上传字体文件'),
+      h('div.desc', '支持 TTF / OTF / WOFF / WOFF2，最大 80MB；同名文件会替换'),
     ]),
-    h('div.row', {
-      onclick: () => fileInput.click(),
-    }, [
-      h('div.grow', [
-        h('div.label', cur ? '更换字体文件' : '上传字体文件'),
-        h('div.desc', '支持 TTF / OTF / WOFF / WOFF2，建议上传覆盖完整的 CJK 字体，最大 80MB'),
-      ]),
-      h('span.chev', '›'),
-    ]),
-  ];
+    h('span.chev', '›'),
+  ]);
 
-  if (cur) {
-    rows.push(h('div.row', {
-      onclick: async () => {
-        if (!(await ctx.confirm('删除自定义字体？阅读器会回到系统字体。'))) return;
-        try {
-          await removeFont();
-          ctx.toast('已删除');
-          setTimeout(() => ctx.navigate('/settings'), 400);
-        } catch { ctx.toast('删除失败'); }
-      },
-    }, [h('div.grow', [h('div.label', '删除自定义字体')]), h('span.chev', '›')]));
+  function paint() {
+    clear(listBox);
+    const fonts = listFonts();
+    const s = ctx.store.settings;
+
+    if (!fonts.length) {
+      listBox.appendChild(h('div.font-empty',
+        '还没有上传字体。遇到生僻字逐字回退时，可以上传一个覆盖完整的 CJK 字体。'));
+    }
+
+    for (const f of fonts) {
+      const active = s.fontFamily === 'custom' && s.customFontId === f.id;
+      const del = h('button.font-del', {
+        type: 'button',
+        'aria-label': `删除字体 ${f.name}`,
+        onclick: async (e) => {
+          e.stopPropagation();
+          if (busy) return;
+          const msg = active
+            ? `删除字体「${f.name}」？它正在使用，删除后会回到系统默认字体。`
+            : `删除字体「${f.name}」？`;
+          if (!(await ctx.confirm(msg))) return;
+          busy = true;
+          try {
+            await removeFont(f.id);
+            ctx.toast('已删除');
+            paint();
+            fontRowRefresh();
+          } catch (err) {
+            ctx.toast(err.message || '删除失败');
+          } finally {
+            busy = false;
+          }
+        },
+      }, '删除');
+
+      listBox.appendChild(h('div.font-item' + (active ? '.on' : ''), {
+        role: 'radio',
+        tabindex: '0',
+        'aria-checked': String(active),
+        onclick: () => {
+          if (busy) return;
+          selectFont(f.id);
+          ctx.toast(`已切换到 ${f.name}`);
+          paint();
+          fontRowRefresh();
+        },
+      }, [
+        h('span.font-radio', { 'aria-hidden': 'true' }),
+        h('div.grow', [
+          h('div.label', f.name),
+          h('div.desc', `${fmtBytes(f.size)} · ${String(f.ext).toUpperCase()}${active ? ' · 使用中' : ''}`),
+        ]),
+        del,
+      ]));
+    }
+
+    clear(hintBox);
+    const serif = serifStatus();
+    if (!serif.family) {
+      hintBox.appendChild(h('div.font-warn',
+        '当前设备没有可用的宋体，建议上传自定义字体（或使用系统默认）。'));
+    } else {
+      hintBox.appendChild(h('div.desc.small.muted', `宋体探测：${serif.family}`));
+    }
   }
 
-  rows.push(fileInput);
-  return section('自定义字体', rows);
+  paint();
+  // 打开设置页时和服务端对齐一次（可能在别的设备/标签页里改过）
+  refreshFonts().then(() => { paint(); fontRowRefresh(); }).catch(() => {});
+
+  return section('自定义字体', [
+    uploadRow,
+    h('div.font-panel', [listBox, hintBox]),
+    fileInput,
+  ]);
 }
 
 /* ---------------------------------------------------------------- 替换规则 */
