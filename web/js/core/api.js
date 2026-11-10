@@ -54,7 +54,11 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const err = data?.error || {};
-    throw new ApiError(err.code || 'error', err.message || `请求失败 (${res.status})`, res.status);
+    const e = new ApiError(err.code || 'error', err.message || `请求失败 (${res.status})`, res.status);
+    // 429 的 Retry-After 交给界面显示"请等 N 秒"，不要只给一句空话
+    const ra = Number(res.headers.get('Retry-After'));
+    if (Number.isFinite(ra) && ra > 0) e.retryAfter = ra;
+    throw e;
   }
   return data;
 }

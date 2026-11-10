@@ -25,6 +25,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":       Version,
 		"tokenRequired": s.currentToken() != "",
 		"dev":           s.cfg.Dev,
+		"cache":         s.cache.Stats(),
 		// 保留原有 login/host/cookie 字段（向后兼容），其余为新增的可观测性信息。
 		"wenku8": map[string]any{
 			"login":             st.LoggedIn,
@@ -630,6 +631,7 @@ func (s *Server) handleClearCache(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", err.Error())
 		return
 	}
+	s.cache.Purge("/api/book/" + id)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

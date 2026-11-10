@@ -117,7 +117,8 @@ export function openSettingsSheet(app) {
       { value: 'slide', label: '滑动' },
       { value: 'fade', label: '淡入淡出' },
     ]),
-    toggle('点击翻页', '点左右两侧都翻下一页，中间呼出菜单；上一页请滑动', 'tapToTurn'),
+    toggle('点击翻页', '点左右两侧都翻下一页，中间呼出菜单', 'tapToTurn'),
+    toggle('点击左侧翻上一页', '关闭时点左右都下一页；打开后左 1/3 回上一页', 'tapLeftPrev'),
     toggle('快速切章', '章末自动进入下一章', 'quickChapterSwitch'),
     toggle('无缝滚动', '滚到章末自动追加下一章', 'seamlessScroll'),
     select('返回拦截', '防止误触退出阅读', 'backBlock', [

@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   pageMode: 'scroll',    // scroll | flip
   flipAnimation: 'none', // none | slide | fade
   tapToTurn: true,
+  tapLeftPrev: false,   // false=点左右都下一页；true=左上一页/右下一页
   quickChapterSwitch: true,
   seamlessScroll: true,
   backBlock: 'double',   // none | double | blocked

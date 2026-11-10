@@ -36,6 +36,11 @@ type Config struct {
 	NoAuth bool
 	// ExplicitPublicURL 扫码/分享用的外部地址（反代到 https 域名时设置）
 	ExplicitPublicURL string
+
+	// CacheTTL 内容接口的服务端缓存时长，0 表示关闭
+	CacheTTL time.Duration
+	// CacheSize 缓存条目上限
+	CacheSize int
 }
 
 func Load() Config {
@@ -49,6 +54,8 @@ func Load() Config {
 		Profile:           env("HACHI_PROFILE", "safari_ios"),
 		WK8Cookie:         os.Getenv("HACHI_WK8_COOKIE"),
 		ExplicitPublicURL: os.Getenv("HACHI_PUBLIC_URL"),
+		CacheTTL:          10 * time.Minute,
+		CacheSize:         512,
 		Timeout:           25 * time.Second,
 	}
 	if v := os.Getenv("HACHI_TIMEOUT"); v != "" {
@@ -58,6 +65,16 @@ func Load() Config {
 	}
 	if v := os.Getenv("HACHI_NO_BUNDLED_COOKIE"); v != "" {
 		c.NoBundledCookie = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
+	}
+	if v := os.Getenv("HACHI_CACHE_TTL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.CacheTTL = time.Duration(n) * time.Second
+		}
+	}
+	if v := os.Getenv("HACHI_CACHE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.CacheSize = n
+		}
 	}
 	if v := os.Getenv("HACHI_NO_AUTH"); v != "" {
 		c.NoAuth = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")

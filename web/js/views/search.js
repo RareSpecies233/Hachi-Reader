@@ -4,6 +4,7 @@
 // 命中单本（响应含 single）时直接进书籍页；站点限流 5 秒内禁用搜索按钮。
 
 import { h, clear, coverImg } from '../core/dom.js';
+import { isRateLimited, showRateLimited, waitSeconds } from './rate-limit.js';
 
 const HIST_KEY = 'hachi.search.history.v1';
 const COOLDOWN_MS = 5000;
@@ -39,8 +40,10 @@ let page = 1;
 let hasMore = false;
 let busy = false;
 let appending = false;
-let blocked = null;   // null | 'login' | 'error'
+let blocked = null;   // null | 'login' | 'error' | 'limit'
 let errMsg = '';
+let footLimit = false;   // 加载下一页时被限流：只提示，不给重试
+let limitWait = 0;       // 429 提示里的秒数
 
 let cooldownUntil = 0;
 let cooldownTimer = null;
@@ -76,7 +79,7 @@ function errText(e) {
     case 'network': return '连不上服务，请确认 Hachi 服务已启动';
     case 'unauthorized': return '访问令牌无效，请到设置里检查';
     case 'login_required': return '需要先在设置里填写 wenku8 账号';
-    case 'rate_limited': return '搜索太频繁，请等待 5 秒后再试';
+    case 'rate_limited': return '搜索太频繁，请稍后再试';
     case 'upstream_error': return 'wenku8 返回异常，请稍后再试';
     default: return e.message || '出错了，请稍后再试';
   }
@@ -216,6 +219,7 @@ function showHistory() {
   items = [];
   hasMore = false;
   blocked = null;
+  footLimit = false;
   clear(el.resWrap);
   el.histWrap.hidden = false;
   paintHistory();
@@ -339,6 +343,7 @@ async function doSearch(override) {
   el.histWrap.hidden = true;
   blocked = null;
   errMsg = '';
+  footLimit = false;
   items = [];
   page = 1;
   hasMore = false;
@@ -369,14 +374,20 @@ async function doSearch(override) {
     if (!alive || seq !== reqSeq) return;
     busy = false;
 
-    if (e?.code === 'rate_limited') {
-      // 站点限制 5 秒一次：提示 + 倒计时禁用按钮
-      ctxRef.toast('搜索太频繁，请等待 5 秒后再试');
-      startCooldown();
-      clear(el.resWrap);
-      lastQuery = '';
-      el.histWrap.hidden = false;
-      paintHistory();
+    if (isRateLimited(e)) {
+      // 429：弹窗说明原因（关闭后不自动重试、也不留重试按钮）。
+      // 输入框和搜索词都保留，用户等一会儿可以直接再点搜索。
+      limitWait = waitSeconds(e);
+      showRateLimited(ctxRef, e, {
+        onSeconds: (n) => {
+          limitWait = n;
+          if (alive && blocked === 'limit') paintResults();
+        },
+      });
+      startCooldown(limitWait * 1000);
+      blocked = 'limit';
+      hasMore = false;
+      paintResults();
       return;
     }
 
@@ -417,9 +428,11 @@ async function loadMore() {
       paintResults();
       return;
     }
-    if (e?.code === 'rate_limited') {
-      ctxRef.toast('搜索太频繁，请等待 5 秒后再试');
-      startCooldown();
+    if (isRateLimited(e)) {
+      limitWait = waitSeconds(e);
+      showRateLimited(ctxRef, e);
+      startCooldown(limitWait * 1000);
+      footLimit = true;   // 已有结果保留，底部只提示，不给重试
     } else {
       ctxRef.toast(errText(e));
     }
@@ -435,6 +448,10 @@ function paintResults() {
 
   if (blocked === 'login') {
     el.resWrap.appendChild(loginCard());
+    return;
+  }
+  if (blocked === 'limit') {
+    el.resWrap.appendChild(limitCard());
     return;
   }
   if (blocked === 'error') {
@@ -465,7 +482,11 @@ function paintResults() {
   for (const b of items) list.appendChild(bookRow(b));
   el.resWrap.appendChild(list);
 
-  if (hasMore) {
+  if (footLimit) {
+    el.resWrap.appendChild(h('div.list-footer', [
+      h('span.tiny', `请求太频繁，暂停加载（约 ${limitWait || 10} 秒后再试）`),
+    ]));
+  } else if (hasMore) {
     el.resWrap.appendChild(h('button.load-more', {
       onclick: () => loadMore(),
       disabled: appending || cooldownLeft() > 0,
@@ -511,6 +532,15 @@ function loginCard() {
     h('div.gate-desc', '搜索是要去 wenku8 站内查的，服务端目前还没有登录。在设置里填好账号密码，回来就能搜了。'),
     h('button.btn.primary.block', { onclick: () => ctxRef.navigate('/settings') }, '前往设置填写账号'),
     h('button.btn.ghost.block', { onclick: () => doSearch(lastQuery || el.input.value) }, '已经登录了，重试'),
+  ]);
+}
+
+function limitCard() {
+  return h('div.gate-card', [
+    h('div.gate-ico', [ico(ICON.alert)]),
+    h('div.gate-title', '请求太频繁'),
+    h('div.gate-desc',
+      `wenku8 正在限流，请等 ${limitWait || 10} 秒后再试。稍后重新点「搜索」即可。`),
   ]);
 }
 

@@ -342,16 +342,22 @@ const THEMES = {
 };
 
 export function effectiveTheme(settings) {
-  if (settings.theme === 'auto') {
+  const th = settings.theme;
+  if (!th || th === 'auto') {
     return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
-  return THEMES[settings.theme] ? settings.theme : 'light';
+  // 新配色（forest/ocean/...）直接透传，让 base.css 的 [data-theme] 角色生效；
+  // 不再回落到 light，否则阅读页会和外壳配色对不上。
+  return th;
 }
 
 /** 主题、背景纹理、文字色都落在 reader-root 的 CSS 变量上 */
 export function applyReaderTheme(root, settings) {
   const name = effectiveTheme(settings);
-  const t = THEMES[name];
+  // 未知主题由 CSS 负责配色，这里只给纸纹强度一个合理的默认值
+  const t = THEMES[name] || {
+    paper: matchMedia('(prefers-color-scheme: dark)').matches ? 0.34 : 0.6,
+  };
   root.dataset.theme = name;
   root.dataset.bg = settings.bgImage || 'none';
   root.dataset.bgDisplay = settings.bgDisplay || 'fixed';

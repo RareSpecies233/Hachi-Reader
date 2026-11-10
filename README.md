@@ -54,6 +54,8 @@ HACHI_DEV=1 ./hachi -addr :8080 -data ./data
 | `HACHI_PROFILE` | `safari_ios` | TLS 指纹：`safari_ios` / `safari` / `chrome` |
 | `HACHI_DEV` | 空 | 为 `1` 时前端从磁盘 `web/` 读取且不缓存 |
 | `HACHI_TIMEOUT` | `25` | 单次抓取超时（秒） |
+| `HACHI_CACHE_TTL` | `600` | 服务端内容缓存秒数（0=关闭）。重复请求直接命中，不打扰 wenku8 |
+| `HACHI_CACHE_SIZE` | `512` | 缓存条目上限 |
 
 命令行参数：`-addr`、`-data`、`-token`、`-no-auth`。
 
