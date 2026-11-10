@@ -50,7 +50,10 @@ export function navigate(to, { replace = false } = {}) {
   // 把「从哪来」写进 history.state：
   // iOS 的 PWA 切后台常会整页重载，内存里的栈会清空，
   // 但 history.state 会跟着这一条历史项保留下来，返回才不会一律掉到书架。
-  const state = { ...(history.state || {}), from: cur, hachiPath: next };
+  // 只有前进才记录来源。replace 是"就地替换"（退出阅读器、返回等），
+  // 若也用当前路径覆盖 from，会把"来源"污染成自己，导致返回时跳回原页面。
+  const state = { ...(history.state || {}), hachiPath: next };
+  if (!replace) state.from = cur;
   if (replace) {
     history.replaceState(state, '', `#${next}`);
     emit();

@@ -213,20 +213,28 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			return
 		}
 
-		got := ""
+		// 收集所有出现的凭据，任意一个匹配就放行。
+		// 关键：以前只取第一个（优先 Authorization），于是浏览器里残留的旧 Bearer
+		// 会盖住刚写入的新 Cookie，导致"换了令牌、扫码也进不去"。
+		var candidates []string
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			got = strings.TrimPrefix(h, "Bearer ")
+			candidates = append(candidates, strings.TrimPrefix(h, "Bearer "))
 		}
-		if got == "" {
-			got = r.URL.Query().Get("token")
+		if q := r.URL.Query().Get("token"); q != "" {
+			candidates = append(candidates, q)
 		}
-		if got == "" {
-			if ck, err := r.Cookie("hachi_token"); err == nil {
-				got = ck.Value
+		if ck, err := r.Cookie("hachi_token"); err == nil && ck.Value != "" {
+			candidates = append(candidates, ck.Value)
+		}
+
+		ok := false
+		for _, got := range candidates {
+			if subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
+				ok = true
+				break
 			}
 		}
-		// 常量时间比较，避免通过响应时间逐位猜令牌
-		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		if !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "访问令牌无效或已过期")
 			return
 		}

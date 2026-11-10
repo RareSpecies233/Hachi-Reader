@@ -148,7 +148,6 @@ class ReaderApp {
 
     this.destroyed = false;
     this.exiting = false;
-    this.guardPushed = false;
     this.suppressPop = false;
     this.lastBackAt = 0;
     this.guardLen = 0;
@@ -194,7 +193,6 @@ class ReaderApp {
   async init() {
     this.buildSkeleton();
     this.bindGlobal();
-    this.pushGuard();
     this.applyAppearance();
 
     this._cleanup.push(this.store.on('settings', () => this.onSettingsChanged()));
@@ -333,12 +331,10 @@ class ReaderApp {
      ================================================================ */
 
   bindGlobal() {
-    this.onPopStateBound = (e) => this.onPopState(e);
     this.onVisibilityBound = () => this.onVisibility();
     this.onPageHideBound = () => this.flushAll();
     this.onKeyDownBound = (e) => this.onKeyDown(e);
 
-    addEventListener('popstate', this.onPopStateBound);
     document.addEventListener('visibilitychange', this.onVisibilityBound);
     addEventListener('pagehide', this.onPageHideBound);
     addEventListener('keydown', this.onKeyDownBound);
@@ -356,32 +352,15 @@ class ReaderApp {
     addEventListener('orientationchange', this.onResizeBound);
     if (window.visualViewport) visualViewport.addEventListener('resize', this.onResizeBound);
 
-    this.bindNavigation();
 
     this.mq = matchMedia('(prefers-color-scheme: dark)');
+    // 跟随系统时，系统切换深浅要立刻重算阅读器配色
     this.onSchemeBound = () => {
-      if (this.settings.theme === 'auto') this.applyAppearance();
+      if (this.settings.themeFollow !== false) this.applyAppearance();
     };
     this.mq.addEventListener?.('change', this.onSchemeBound);
 
     this.bindGestures();
-  }
-
-  /** Navigation API：区分「应用内 push（含 location.hash）」与真实历史回退。
-      历史和 location.hash 在 Chrome 里都会派发 popstate，只看 URL 会误伤正常导航；
-      history.length 在 50 条上限后又不再增长，所以优先用 navigationType。 */
-  bindNavigation() {
-    const nav = window.navigation;
-    if (!nav?.addEventListener) return;
-    this.onNavigateBound = (e) => {
-      if (e.navigationType !== 'push' && e.navigationType !== 'replace') return;
-      let url = null;
-      try { url = new URL(e.destination?.url || '', location.href); } catch { return; }
-      // 守卫自身 / 章节 replaceState 不是「离开阅读器」
-      if (url.hash === this.currentHash()) return;
-      this.inAppNavAt = performance.now();
-    };
-    nav.addEventListener('navigate', this.onNavigateBound);
   }
 
   bindGestures() {
@@ -775,7 +754,6 @@ class ReaderApp {
     }
 
     this.syncWakeLock();
-    this.syncGuard();
     if (prefetchChanged) this.schedulePrefetch();
   }
 
@@ -1126,98 +1104,6 @@ class ReaderApp {
     return `#/read/${encodeURIComponent(this.bookId)}/${encodeURIComponent(cid)}${suffix}`;
   }
 
-  pushGuard() {
-    if (this.settings.backBlock === 'none') return;
-    try {
-      history.pushState({ ...(history.state || {}), hachiReaderGuard: true }, '', this.currentHash());
-      this.guardPushed = true;
-      this.guardLen = history.length;
-    } catch { /* 忽略 */ }
-  }
-
-  syncGuard() {
-    if (this.settings.backBlock === 'none') {
-      // 改成「不拦截」后，后续 popstate 交给浏览器/路由处理
-      this.guardPushed = false;
-      return;
-    }
-    if (!this.guardPushed && !this.exiting) this.pushGuard();
-  }
-
-  onPopState() {
-    if (this.exiting || this.destroyed) return;
-    if (!this.guardPushed) return;
-
-    if (this.settings.backBlock === 'none') {
-      this.guardPushed = false;
-      return;
-    }
-
-    // location.hash / app 内 navigate 在 Chrome 里也会派发 popstate。
-    // Navigation API 能直接告诉我们这是 push/replace（应用内跳转）而不是 traverse。
-    if (this.inAppNavAt && performance.now() - this.inAppNavAt < 800) {
-      this.guardPushed = false;
-      return;
-    }
-    // 旧浏览器兜底：应用内 push 会增加 history.length，真实回退不会。
-    // （注意 Chrome 历史上限 50 后不再增长，所以只作为兜底。）
-    if (this.guardLen && history.length > this.guardLen) {
-      this.guardPushed = false;
-      return;
-    }
-
-    this.guardPushed = false;
-
-    const mode = this.settings.backBlock;
-    if (mode === 'blocked') {
-      this.restoreGuard();
-      this.toast('返回已锁住，点左上角退出');
-      return;
-    }
-
-    // double：2 秒内二次返回才真正退出
-    const now = Date.now();
-    if (now - this.lastBackAt < 2000) {
-      this.allowExit();
-    } else {
-      this.lastBackAt = now;
-      this.restoreGuard();
-      this.toast('再返回一次退出阅读');
-    }
-  }
-
-  restoreGuard() {
-    if (this.destroyed || this.exiting) return;
-    this.guardPushed = true;
-    guardRestoreAt = performance.now();
-    // 用 pushState 回到当前章节，而不是 forward()：forward 依赖被弹出的前向项，
-    // 在 iOS 上经常拿不回来，而且会把过期章节 URL 留在栈里。
-    try {
-      history.pushState({ ...(history.state || {}), hachiReaderGuard: true }, '', this.currentHash());
-      this.guardLen = history.length;
-    } catch { /* 忽略 */ }
-  }
-
-  /** 系统返回的二次确认退出：当前已经在「阅读项」上，直接 replace 成详情页。 */
-  allowExit() {
-    if (this.exiting) return;
-    this.exiting = true;
-    this.flushAll();
-
-    const target = `/book/${encodeURIComponent(this.bookId)}`;
-    exitIntent = {
-      bookId: this.bookId,
-      chapterId: this.activeChapterId || this.chapterId,
-      target,
-      until: Date.now() + EXIT_INTENT_WINDOW,
-    };
-    this.guardPushed = false;
-    // 不要再自己 replaceState：框架的 navigate(replace) 会先判断 hash 是否已变，
-    // 若这里先改掉 URL，navigate 就会提前 return，hashchange 不发、阅读器没人销毁，
-    // 结果就是 URL 到了详情页但阅读器还盖在上面。
-    this.leaveTo(target);
-  }
-
   /**
    * HUD 左上角返回：明确的「主动退出」，与 popstate 拦截完全分开。
    * 优先用 history 退回到进入阅读器之前的那一页；iOS 上 go(-2) 不可靠，
@@ -1235,12 +1121,23 @@ class ReaderApp {
       target,
       until: Date.now() + EXIT_INTENT_WINDOW,
     };
-    this.guardPushed = false;     // 主动退出期间绝不再补哨兵
-    clearTimeout(this.exitTimer);
 
-    // 直接 replace 到详情页，不再依赖 history.go(-2)：
-    // iOS 会吞掉多格遍历，这正是"点返回却停在阅读界面/像刷新"的根因。
-    this.leaveTo(target);
+    // 没有守卫历史项之后，退出只需要退一格就回到详情页。
+    // 单步回退在 iOS 上是可靠的（多格 go(-2) 才容易被吞）。
+    // 这样也不会在历史里留下重复的详情页条目——之前"再返回一次会跳回阅读器"
+    // 就是重复条目 + 来源被替换成自己造成的。
+    const before = location.hash;
+    let backOk = false;
+    try {
+      history.back();
+      backOk = true;
+    } catch { /* 忽略 */ }
+
+    clearTimeout(this.exitTimer);
+    this.exitTimer = setTimeout(() => {
+      if (this.destroyed) return;
+      if (!backOk || location.hash === before) this.leaveTo(target);
+    }, 320);
   }
 
   leaveTo(target) {
@@ -1287,8 +1184,6 @@ class ReaderApp {
     clearTimeout(this.rulesTimer);
     clearTimeout(this.exitTimer);
 
-    removeEventListener('popstate', this.onPopStateBound);
-    window.navigation?.removeEventListener?.('navigate', this.onNavigateBound);
     document.removeEventListener('visibilitychange', this.onVisibilityBound);
     removeEventListener('pagehide', this.onPageHideBound);
     removeEventListener('keydown', this.onKeyDownBound);

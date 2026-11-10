@@ -3,10 +3,14 @@
 
 import { h, clear } from '../core/dom.js';
 import { hasCustomFont, currentFont, uploadFont, removeFont } from '../core/fonts.js';
+import { PALETTES, paperOpacity, resolveMode } from '../core/store.js';
 
 let ctxRef = null;
+let storeUnsubs = [];
 
 export default async function render(root, ctx) {
+  for (const u of storeUnsubs) u();
+  storeUnsubs = [];
   ctxRef = ctx;
   clear(root);
   root.appendChild(buildHeader(ctx));
@@ -34,6 +38,8 @@ export default async function render(root, ctx) {
 }
 
 export function destroy() {
+  for (const u of storeUnsubs) u();
+  storeUnsubs = [];
   ctxRef = null;
 }
 
@@ -89,63 +95,137 @@ function selectRow(label, desc, options, current, onPick) {
   return row;
 }
 
-/* 主题：10 套配色平铺，每个选项一个 CSS 小圆点预览（主色 / 底色斜切）。
-   点一下就走 store.patchSettings({theme}) → applyTheme 写 <html data-theme>，
-   CSS 变量整体重算，界面上立刻换色，不需要刷新。 */
-const THEME_OPTIONS = [
-  { value: 'auto', label: '跟随系统' },
-  { value: 'light', label: '浅色' },
-  { value: 'sepia', label: '护眼米黄' },
-  { value: 'dark', label: '深色' },
-  { value: 'forest', label: '森林绿' },
-  { value: 'ocean', label: '海洋蓝' },
-  { value: 'sakura', label: '樱花粉' },
-  { value: 'violet', label: '暮紫' },
-  { value: 'indigo', label: '靛蓝' },
-  { value: 'slate', label: '石墨' },
-];
-
+/* 主题：跟随系统 + 深/浅 + 14 套 MD3 配色。
+   配色与明暗是两个独立维度：palette 决定色相，themeFollow/themeMode 决定亮暗。
+   色块用 JS 内联 --sw-a..d（亮主色/亮底色/暗主色/暗底色），不跟随当前主题。 */
 function themePicker(ctx) {
-  let cur = ctx.store.settings.theme;
+  const st = () => ctx.store.settings;
+  const patch = (p) => ctx.store.patchSettings(p);
+
+  const grid = h('div.theme-grid', { role: 'radiogroup', 'aria-label': '配色方案' });
   const opts = [];
-
-  const mark = () => {
-    for (const b of opts) {
-      const on = b.dataset.theme === cur;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-checked', on ? 'true' : 'false');
-    }
-  };
-
-  const grid = h('div.theme-grid', { role: 'radiogroup', 'aria-label': '主题' });
-  for (const o of THEME_OPTIONS) {
+  for (const p of PALETTES) {
     const btn = h('button.theme-opt', {
       type: 'button',
       role: 'radio',
       'aria-checked': 'false',
-      onclick: () => {
-        if (cur === o.value) return;
-        cur = o.value;
-        mark();
-        // 立即生效：patchSettings 内部会 applyTheme + emit('settings')
-        ctx.store.patchSettings({ theme: o.value });
-      },
+      onclick: () => { patch({ themePalette: p.id }); sync(); },
     }, [
-      h('span.theme-dot', { dataset: { k: o.value }, 'aria-hidden': 'true' }),
-      h('span.theme-name', o.label),
+      h('span.theme-dot', { 'aria-hidden': 'true' }),
+      h('span.theme-name', p.label),
     ]);
-    btn.dataset.theme = o.value;
+    btn.dataset.palette = p.id;
+    const dot = btn.firstChild;
+    dot.style.setProperty('--sw-a', p.dot[0]);
+    dot.style.setProperty('--sw-b', p.dot[1]);
+    dot.style.setProperty('--sw-c', p.dotDark[0]);
+    dot.style.setProperty('--sw-d', p.dotDark[1]);
     opts.push(btn);
     grid.appendChild(btn);
   }
-  mark();
+
+  const follow = h('button.switch', {
+    role: 'switch',
+    'aria-label': '跟随系统深浅',
+    'aria-checked': 'false',
+    onclick: (e) => {
+      e.stopPropagation();
+      const next = follow.getAttribute('aria-checked') !== 'true';
+      patch(next ? { themeFollow: true } : { themeFollow: false, themeMode: resolveMode(st()) });
+      sync();
+    },
+  });
+  const followRow = h('div.row.theme-follow', { onclick: () => follow.click() }, [
+    h('div.grow', [
+      h('div.label', '跟随系统深浅'),
+      h('div.desc', '系统切到深色时，同色系自动换成深版'),
+    ]),
+    follow,
+  ]);
+
+  const seg = h('div.seg');
+  for (const [val, label] of [['light', '浅色'], ['dark', '深色']]) {
+    seg.appendChild(h('button.seg-item', {
+      dataset: { mode: val },
+      onclick: () => { if (st().themeFollow) return; patch({ themeMode: val }); sync(); },
+    }, label));
+  }
+  const modeWrap = h('div.theme-mode', [seg]);
+
+  function sync() {
+    const s = st();
+    follow.setAttribute('aria-checked', String(!!s.themeFollow));
+    modeWrap.classList.toggle('is-follow', !!s.themeFollow);
+    for (const b of seg.children) b.classList.toggle('active', b.dataset.mode === s.themeMode);
+    for (const b of opts) {
+      const on = b.dataset.palette === s.themePalette;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+  }
+  sync();
 
   return h('div.theme-picker', [
+    followRow,
+    modeWrap,
     h('div.theme-head', [
-      h('div.label', '主题'),
-      h('div.desc', '后 6 套是新增配色，选中后跟随系统深色自动切成同色相深版。'),
+      h('div.label', '配色方案'),
+      h('div.desc', '14 套 MD3 配色，点一下立即换色；正文对比度均 ≥ 7:1'),
     ]),
     grid,
+  ]);
+}
+
+/* 纸张强度：0~1 映射到阅读器纸纹不透明度，带实时预览（示例文字 + 纸纹）。 */
+function paperBlock(ctx) {
+  const st = () => ctx.store.settings;
+  const patch = (p) => ctx.store.patchSettings(p);
+
+  const tex = h('div.paper-preview-tex');
+  const rowVal = h('span.small.muted');
+  const capVal = h('span.small.muted');
+  const desc = h('div.desc', '');
+  const input = h('input.range', {
+    type: 'range', min: 0, max: 1, step: 0.05,
+    value: st().paperStrength,
+    'aria-label': '纸张强度',
+    oninput: (e) => { patch({ paperStrength: Number(e.target.value) }); sync(); },
+  });
+
+  const preview = h('div.paper-preview', [
+    tex,
+    h('div.paper-preview-body', [
+      h('p.paper-preview-text', '夜色落下，纸页上还留着灯下的温度。'),
+      h('p.paper-preview-text.dim', '纸张强度只改变底纹浓淡，不影响正文与留白。'),
+    ]),
+    h('div.paper-preview-cap', [h('span', '纸张预览'), capVal]),
+  ]);
+
+  function sync() {
+    const v = Number(st().paperStrength || 0);
+    input.value = String(v);
+    rowVal.textContent = `${Math.round(v * 100)}%`;
+    capVal.textContent = `${Math.round(v * 100)}%`;
+    desc.textContent = `阅读器纸纹不透明度 ${paperOpacity(st()).toFixed(2)}`;
+    // 预览比阅读器稍强一点，小面积里才看得出来
+    tex.style.setProperty('--pp-strength', String(v * 0.30));
+  }
+  sync();
+  // 主题/明暗变化时，纸纹不透明度读数要跟着变
+  storeUnsubs.push(ctx.store.on('settings', sync));
+
+  return h('div.paper-block', [
+    h('div.setting-slider', [
+      h('div.row-label', [
+        h('div.grow', [
+          h('div.label', '纸张强度'),
+          desc,
+        ]),
+        rowVal,
+      ]),
+      input,
+    ]),
+    preview,
   ]);
 }
 
@@ -285,12 +365,6 @@ function sectionBehavior(ctx) {
     toggleRow('章末自动跳转', '翻到本章最后一页时直接进入下一章', () => s.quickChapterSwitch,
       (v) => patch({ quickChapterSwitch: v })),
 
-    selectRow('返回误触拦截', '防止单手阅读时误触边缘触发返回', [
-      { value: 'none', label: '不拦截' },
-      { value: 'double', label: '双击返回', desc: '2 秒内再按一次才真的退出' },
-      { value: 'blocked', label: '完全阻止', desc: '只能用左上角按钮返回' },
-    ], s.backBlock, (v) => patch({ backBlock: v })),
-
     toggleRow('保持屏幕常亮', '阅读时不让屏幕自动熄灭（部分浏览器不支持）', () => s.keepAwake,
       (v) => patch({ keepAwake: v })),
 
@@ -310,15 +384,11 @@ function sectionAppearance(ctx) {
 
   return section('外观', [
     themePicker(ctx),
+    paperBlock(ctx),
 
-    selectRow('背景纹理', '阅读器底纹', [
-      { value: 'none', label: '无' },
-      { value: 'paper', label: '纸张' },
-    ], s.bgImage, (v) => patch({ bgImage: v })),
-
-    selectRow('背景显示模式', '仅滚动模式生效', [
+    selectRow('背景显示模式', '纸纹固定，或随正文一起滚动', [
       { value: 'fixed', label: '固定' },
-      { value: 'loop', label: '循环' },
+      { value: 'loop', label: '随内容循环' },
     ], s.bgDisplay, (v) => patch({ bgDisplay: v })),
 
     toggleRow('繁简转换', '把繁体正文自动转成简体', () => s.tradToSimp,

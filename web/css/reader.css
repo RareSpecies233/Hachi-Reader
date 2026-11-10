@@ -68,7 +68,7 @@
   opacity: var(--r-paper-opacity);
   background-image: var(--r-paper-tex);
 }
-.reader-root[data-theme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
+.reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
 .reader-root[data-bg="paper"][data-mode="flip"] .reader-bg { display: none; }
 
@@ -278,7 +278,7 @@
   background-color: var(--r-bg);
   pointer-events: none;
 }
-.reader-root[data-theme="dark"] .reader-flip-paper {
+.reader-root[data-scheme="dark"] .reader-flip-paper {
   background-color: var(--r-bg);
 }
 .reader-root[data-bg="paper"] .reader-flip-paper::before {
@@ -840,3 +840,167 @@
 @media (min-width: 700px) {
   .reader-scroll-inner { max-width: 700px; }
 }
+
+/* ================================================================
+   阅读设置面板（自绘 r-sheet）
+   ----------------------------------------------------------------
+   不走 app.js 的 .sheet / .overlay：这里没有任何 backdrop-filter、
+   blur 或 text-shadow，子面板可以叠在主面板之上，关闭后回到上一层。
+   ================================================================ */
+
+.r-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.r-sheet-layer[hidden] { display: none; }
+
+.r-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--md-scrim);
+  animation: r-fade var(--md-motion-fast) ease;
+}
+/* 排版面板用轻 scrim：上方正文仍然看得清 */
+.r-sheet-scrim.soft {
+  background: color-mix(in srgb, var(--md-on-surface) 10%, transparent);
+}
+@keyframes r-fade { from { opacity: 0; } }
+
+.r-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 86dvh;
+  background: var(--md-surface-container-low);
+  border-radius: var(--md-shape-xl) var(--md-shape-xl) 0 0;
+  box-shadow: var(--md-elevation-3);
+  overflow: hidden;
+  animation: r-sheet-up var(--md-motion-emphasized);
+}
+.r-sheet.compact { max-height: 45dvh; }
+@keyframes r-sheet-up { from { transform: translateY(100%); } }
+
+.r-sheet-grip {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 4px;
+  margin: 12px auto 2px;
+  border-radius: var(--md-shape-full);
+  background: var(--md-outline-variant);
+}
+.r-sheet-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px 20px;
+}
+.r-sheet-title {
+  flex: 1;
+  min-width: 0;
+  font: var(--md-font-title-large);
+  letter-spacing: var(--md-tracking-title);
+  color: var(--md-on-surface);
+}
+.r-sheet-x { flex: 0 0 auto; }
+
+.r-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0 8px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.r-set-group { padding: 6px 0 2px; }
+.r-set-group-title {
+  padding: 8px 12px 4px;
+  font: var(--md-font-label-large);
+  letter-spacing: var(--md-tracking-label);
+  color: var(--md-primary);
+}
+.r-set-card {
+  background: var(--md-surface-container-high);
+  border-radius: var(--md-shape-lg);
+  overflow: hidden;
+}
+.r-set-card .row + .row,
+.r-set-card .setting-slider + .setting-slider,
+.r-set-card .setting-slider + .row,
+.r-set-card .row + .setting-slider { border-top: 1px solid var(--md-outline-variant); }
+.r-set-card .setting-slider { padding: 12px 16px 16px; }
+.r-sheet.compact .setting-slider { padding: 4px 16px 6px; }
+.r-sheet.compact .row-label { margin-bottom: 0; }
+
+.r-sheet-body .theme-grid { padding: 4px 8px 12px; }
+.r-sheet-body .theme-head { padding: 10px 8px 0; }
+.r-sheet-body .theme-mode { padding: 12px 8px 14px; }
+.r-sheet-body .theme-follow { border-bottom: 0; }
+.r-sheet-body .theme-picker .theme-follow { border-bottom: 1px solid var(--md-outline-variant); }
+
+.r-rules-empty { padding: 10px 14px 14px; }
+
+/* 边距弹窗：无 scrim，背景不变暗，四边留白直接可见 */
+.r-margin-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.r-margin-catcher { position: absolute; inset: 0; }
+.r-margin-card {
+  position: relative;
+  width: min(360px, 92vw);
+  max-height: 86dvh;
+  overflow-y: auto;
+  padding: 20px 20px 14px;
+  border-radius: var(--md-shape-xl);
+  background: var(--md-surface-container-high);
+  box-shadow: var(--md-elevation-3);
+}
+.r-margin-title {
+  margin: 0 0 4px;
+  font: var(--md-font-title-large);
+  letter-spacing: var(--md-tracking-title);
+  color: var(--md-on-surface);
+}
+.r-margin-hint {
+  margin: 0 0 6px;
+  font: var(--md-font-body-small);
+  line-height: 1.6;
+  color: var(--md-on-surface-variant);
+}
+.r-margin-card .setting-slider { padding: 10px 0 12px; }
+.r-margin-card .setting-slider + .setting-slider { border-top: 1px solid var(--md-outline-variant); }
+.r-margin-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+@media (min-width: 900px) {
+  .r-sheet {
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    width: min(560px, 92vw);
+    margin: 0 auto;
+    border-radius: var(--md-shape-xl);
+    max-height: 80dvh;
+  }
+  .r-sheet.compact { max-height: 52dvh; }
+}
+
+/* 排版小面板：4 个滑块在 45vh 内完整可见 */
+.r-sheet.compact .r-sheet-head { padding-bottom: 2px; }
+.r-sheet.compact .r-set-group { padding: 0; }
+.r-sheet.compact .r-set-group-title { padding: 2px 12px 2px; }

@@ -46,7 +46,7 @@ const ICON = {
 // 默认进「分类」而不是「排行」。用户手动切过之后记在 localStorage，
 // 下次进探索页恢复上次那个 tab（脏数据 / 旧版本值回落到默认分类）。
 const SEG_KEY = 'hachi.explore.seg';
-const SEG_DEFAULT = 'tag';
+const SEG_DEFAULT = 'top';   // 默认进排行
 
 function readSeg() {
   try {

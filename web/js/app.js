@@ -132,6 +132,9 @@ function showGate(reason = '') {
     btn.disabled = true;
     btn.textContent = '正在验证…';
     err.textContent = '';
+    // 先清掉浏览器里可能残留的旧令牌（上一版留下的 localStorage Bearer），
+    // 否则旧凭据会一直"抢答"导致新令牌也被拒。
+    setToken('');
     try {
       // 首选：换成 HttpOnly Cookie（后续请求自动携带）
       await unlock(val);

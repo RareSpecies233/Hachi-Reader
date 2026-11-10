@@ -11,6 +11,7 @@
 // 注意：reader/ 下的模块都直接跑在浏览器里，没有构建步骤。
 
 import { h } from '../core/dom.js';
+import { store, PALETTE_IDS, resolveMode, paperOpacity } from '../core/store.js';
 
 /* ================================================================
    1. 繁简映射
@@ -333,33 +334,21 @@ export function transformText(text, settings) {
    ================================================================ */
 
 // 主题配色不再由阅读器自己维护：全部走外壳的 MD3 角色（--md-*）。
-// reader-root 自带 data-theme，base.css 的 [data-theme] 角色会在它上面生效，
-// 所以浅色 / 纸纹(sepia) / 深色都能与外壳保持一致。
-const THEMES = {
-  light: { paper: '.07' },
-  sepia: { paper: '.07' },
-  dark: { paper: '.05' },
-};
-
+// 新模型下 <html data-theme=配色 data-mode=亮/暗> 决定角色值，
+// reader-root 同步一份 data-theme / data-mode，供 reader.css 的纸纹等选择器使用。
 export function effectiveTheme(settings) {
-  const th = settings.theme;
-  if (!th || th === 'auto') {
-    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  // 新配色（forest/ocean/...）直接透传，让 base.css 的 [data-theme] 角色生效；
-  // 不再回落到 light，否则阅读页会和外壳配色对不上。
-  return th;
+  return PALETTE_IDS.includes(settings.themePalette) ? settings.themePalette : 'warm';
 }
 
 /** 主题、背景纹理、文字色都落在 reader-root 的 CSS 变量上 */
 export function applyReaderTheme(root, settings) {
   const name = effectiveTheme(settings);
-  // 未知主题由 CSS 负责配色，这里只给纸纹强度一个合理的默认值
-  const t = THEMES[name] || {
-    paper: matchMedia('(prefers-color-scheme: dark)').matches ? 0.34 : 0.6,
-  };
+  const opacity = paperOpacity(settings);
   root.dataset.theme = name;
-  root.dataset.bg = settings.bgImage || 'none';
+  // 注意：reader-root 的 data-mode 已被滚动/翻页占用，这里用 data-scheme 表示亮暗
+  root.dataset.scheme = resolveMode(settings);
+  // 纸纹显隐完全由「纸张强度」决定：强度 0 就是无纹理
+  root.dataset.bg = opacity > 0 ? 'paper' : 'none';
   root.dataset.bgDisplay = settings.bgDisplay || 'fixed';
 
   // 自定义背景/文字色优先；否则交给 MD3 角色，主题切换时自动重解析。
@@ -368,7 +357,7 @@ export function applyReaderTheme(root, settings) {
   root.style.setProperty('--r-muted', 'color-mix(in srgb, var(--md-on-surface-variant) 80%, var(--md-surface))');
   root.style.setProperty('--r-line', 'var(--md-outline-variant)');
   root.style.setProperty('--r-accent', 'var(--md-primary)');
-  root.style.setProperty('--r-paper-opacity', t.paper);
+  root.style.setProperty('--r-paper-opacity', String(opacity));
 }
 
 /** 字体相关变量；只改变量，不重建 DOM */
@@ -419,6 +408,15 @@ export function applyMargins(root, settings) {
   root.style.setProperty('--r-pb', `${m.bottom}px`);
   root.style.setProperty('--r-pl', `${m.left}px`);
   root.style.setProperty('--r-pr', `${m.right}px`);
+}
+
+// 系统深浅切换时，reader-root 也要跟着换 data-mode / 纸纹，
+// 否则「跟随系统」在阅读页里会停留在旧亮暗（index.js 只管旧 theme 字段）。
+if (typeof matchMedia === 'function') {
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const root = document.querySelector('.reader-root');
+    if (root && store.settings.themeFollow) applyReaderTheme(root, store.settings);
+  });
 }
 
 /* ================================================================
@@ -511,3 +509,53 @@ function clamp(n, min, max) {
 
 // 模块加载时先编译一次规则
 reloadRules();
+
+/* ================================================================
+   阅读位置锚定
+   ----------------------------------------------------------------
+   字号 / 行距 / 字体 / 边距变化会让 scroll-mode 用「比例」恢复位置，
+   在章节只有部分渲染时容易漂一个段落。这里在 settings 变更后记下
+   视口顶部第一个段落及其偏移，布局稳定后把同一段拉回原偏移。
+   只做滚动模式；翻页模式由章节页码快照负责。
+   ================================================================ */
+
+function captureScrollAnchor(root) {
+  const scroller = root.querySelector('.reader-scroll');
+  if (!scroller) return null;
+  const sr = scroller.getBoundingClientRect();
+  for (const p of scroller.querySelectorAll('.r-p')) {
+    const r = p.getBoundingClientRect();
+    if (r.bottom > sr.top + 4) {
+      return { text: p.textContent, offset: r.top - sr.top };
+    }
+  }
+  return null;
+}
+
+function restoreScrollAnchor(root, anchor) {
+  if (!anchor || root.dataset.mode !== 'scroll') return;
+  const scroller = root.querySelector('.reader-scroll');
+  if (!scroller) return;
+  const sr = scroller.getBoundingClientRect();
+  let target = null;
+  for (const p of scroller.querySelectorAll('.r-p')) {
+    if (p.textContent === anchor.text) { target = p; break; }
+  }
+  if (!target) return;
+  const delta = (target.getBoundingClientRect().top - sr.top) - anchor.offset;
+  if (Math.abs(delta) > 1) scroller.scrollTop += delta;
+}
+
+store.on('settings', () => {
+  const root = document.querySelector('.reader-root');
+  if (!root || root.dataset.mode !== 'scroll') return;
+  const anchor = captureScrollAnchor(root);
+  if (!anchor) return;
+  const apply = () => restoreScrollAnchor(root, anchor);
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(apply);
+  });
+  setTimeout(apply, 120);
+  setTimeout(apply, 320);
+});
