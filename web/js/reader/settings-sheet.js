@@ -94,6 +94,7 @@ export function openSettingsSheet(app) {
     slider('字距', null, 'letterSpacing', { min: 0, max: 3, step: 0.5, format: (v) => `${v}px` }),
     slider('段首缩进', null, 'paragraphIndent', { min: 0, max: 4, step: 0.5, format: (v) => `${v} 字` }),
     select('字体', null, 'fontFamily', [
+      { value: 'system', label: '系统默认（PingFang）' },
       { value: 'serif', label: '衬线（宋体）' },
       { value: 'sans', label: '无衬线（黑体）' },
     ]),
@@ -116,7 +117,7 @@ export function openSettingsSheet(app) {
       { value: 'slide', label: '滑动' },
       { value: 'fade', label: '淡入淡出' },
     ]),
-    toggle('点击翻页', '左 1/3 上一页，右 1/3 下一页，中间呼出菜单', 'tapToTurn'),
+    toggle('点击翻页', '点左右两侧都翻下一页，中间呼出菜单；上一页请滑动', 'tapToTurn'),
     toggle('快速切章', '章末自动进入下一章', 'quickChapterSwitch'),
     toggle('无缝滚动', '滚到章末自动追加下一章', 'seamlessScroll'),
     select('返回拦截', '防止误触退出阅读', 'backBlock', [
@@ -132,7 +133,7 @@ export function openSettingsSheet(app) {
   body.appendChild(section('指示器', [
     toggle('显示时间', null, 'showTime'),
     toggle('显示章节名', null, 'showChapter'),
-    toggle('显示进度', '含本章页码与全书百分比', 'showProgress'),
+    toggle('显示进度', '含本章页码与本卷百分比（HUD 展开时始终显示）', 'showProgress'),
     slider('预取章节', '提前缓存后续章节，切章更快', 'prefetchChapters', {
       min: 0, max: 10, step: 1, format: (v) => `${v} 章`,
     }),

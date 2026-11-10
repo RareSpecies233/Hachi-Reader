@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS = {
   // 排版
   fontSize: 19,          // px
   lineHeight: 1.85,      // 倍
-  fontFamily: 'serif',   // serif | sans
+  fontFamily: 'system',  // system | serif | sans | custom
   letterSpacing: 0,      // px
   paragraphIndent: 2,    // em
   // 边距（px，0 = 自动）
@@ -93,7 +93,9 @@ export function applyTheme(s) {
     mode = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   root.dataset.theme = mode;
-  root.style.setProperty('--reader-font', s.fontFamily === 'sans' ? 'var(--font-ui)' : 'var(--font-read)');
+  // system/sans 走 UI 字体（iOS 上就是 PingFang），serif 走宋体，custom 由 fonts.js 覆盖 --font-read
+  const uiFont = s.fontFamily === 'system' || s.fontFamily === 'sans';
+  root.style.setProperty('--reader-font', uiFont ? 'var(--font-ui)' : 'var(--font-read)');
 }
 
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

@@ -41,13 +41,46 @@ Cloudflare 的判定不只看 UA，而是综合 TLS ClientHello（JA3/JA4）、H
 
 ```
 Client
- ├─ 域名轮换   www.wenku8.net ↔ www.wenku8.cc（失败即换）
+ ├─ 域名轮换   www.wenku8.net ↔ www.wenku8.cc（仅网络错误/5xx 时轮换，成功后回主域）
  ├─ 并发上限   3（Semaphore）
- ├─ 页面间隔   120ms；搜索额外强制 5.2s（站点提示"间隔不得少于 5 秒"）
+ ├─ 页面间隔   120ms；搜索额外强制 5.2s，且串行覆盖整段请求
  ├─ 编码       GBK → UTF-8
- ├─ 重试       403/挑战页/网络错误 → 换域名重试
- └─ 登录       可选，Cookie 由 tls-client 的 jar 管理
+ ├─ 重试       网络错误/5xx → 换域名；403/挑战页/429 → 退避，不换域名重放
+ ├─ 登录       Cookie 按域存储：对所有 host 分别 seed，rotate 后补种
+ └─ 观测       /api/wk8/status：来源/host/最近探测/成功率/退避状态
 ```
+
+### 域名与 Cookie 的域隔离
+
+`www.wenku8.net` 与 `www.wenku8.cc` 是两个不同的域，Cookie 按域存储。只给"当前 host"seed 会让轮换后的域没有登录态。
+
+更麻烦的是：`.cc` 对所有路径都 `301` 回 `.net`，登录态只存在于 `.net`。所以：
+
+- 默认双 host 时，rotate 到 `.cc` 仍能成功（301 回 `.net` 时 jar 会带上 `.net` Cookie）；
+- 但如果只配置 `.cc` 一个 host，无论 Cookie 多正确都无法登录；
+- 早期实现只对当前 host seed，`SetCookie()` / 账号登录后一旦轮换就会丢登录态。
+
+现在的做法是初始化时对所有 host seed，`rotate()` 只给"还没有 Cookie"的 host 补种（避免覆盖站点已续期的值），账号登录成功后把 Cookie 镜像到其它域。`/api/wk8/status` 的 `cookieHosts` 可以直接验证这一点。
+
+### 上游限流（Cloudflare 1015）
+
+2026-11-10 实测（同一出口 IP，带有效 Cookie）：
+
+| 请求节奏 | 结果 |
+|---|---|
+| toplist 连续 20 次，间隔 300ms | 8 次 200，12 次 429 |
+| toplist 连续 8 次，约 250ms 间隔 | 7 次 200，第 8 次 429 |
+| 命中 429 后停止 | 约 10 秒后恢复 |
+
+429 响应体是 `error code: 1015`（Cloudflare 限流），带 `Retry-After: 10`。这是 **zone 级、按出口 IP** 的限制，换 `.cc` 不能绕开——两个域在同一个 Cloudflare zone 后面，`curl` 换域名只是多一次 301 和一次请求，会把限流窗口打得更久。
+
+因此抓取层的行为是：
+
+- 429：读取 `Retry-After`（默认 10s）进入本地退避，**不换域名重试**；
+- 403/挑战页：退避 3s 起，连续触发每次 +5s，上限 60s；
+- 退避期内所有请求快速失败（~50ms），不再消耗上游配额；
+- API 返回 `429 rate_limited` 并带 `Retry-After`，前端提示"请求太频繁"；
+- 统计上区分"真实上游请求"（`requests`/`success`/`failed`）与"本地拒绝"（`rejected`），避免成功率被退避掩盖。
 
 ### 页面结构（2026-11 实测）
 
@@ -62,7 +95,13 @@ Client
 
 ### 未登录的限制
 
-书籍详情 / 目录 / 正文匿名可读；但 `toplist.php`、`articlelist.php`、`tags.php`、`search.php` 未登录会返回一个"本站正式关闭"的登录页（HTTP 仍是 200）。抓取层会识别这段文案并抛出 `ErrLoginRequired`，API 映射为 `403 login_required`，前端显示引导卡片而不是错误。
+书籍详情 / 目录 / 正文匿名可读；但 `toplist.php`、`articlelist.php`、`tags.php`、`search.php` 未登录会返回一个"本站正式关闭"的登录页（HTTP 仍是 200）。抓取层会识别这段文案：
+
+- 没有配置凭据 → `ErrLoginRequired`（"没配"）；
+- 配置了 Cookie/账号但拿到登录页 → `ErrLoginStale`（"配了但失效"）；
+- HTTP 200 但列表首页解析为空 → 同样按 `ErrLoginStale` 处理，绝不把"空"当成成功返回。
+
+两者在 API 上都映射为 `403 login_required`（message 不同），前端显示引导卡片而不是错误；`/api/wk8/status` 的 `source` / `lastProbeOk` 可以区分具体原因。
 
 ## 存储
 

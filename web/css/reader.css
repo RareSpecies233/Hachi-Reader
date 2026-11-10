@@ -44,6 +44,8 @@
   --r-accent: var(--md-primary, #8c4a2f);
   --r-paper-opacity: .07;
   --r-progress: 0;
+  /* 常显状态条的高度（不含安全区）；正文底部留白按它让位 */
+  --r-status-h: 28px;
 }
 
 .reader-root[hidden] { display: none !important; }
@@ -214,7 +216,7 @@
   padding:
     calc(var(--r-pt) + env(safe-area-inset-top, 0px))
     calc(var(--r-pr) + env(safe-area-inset-right, 0px))
-    calc(var(--r-pb) + env(safe-area-inset-bottom, 0px) + 16px)
+    calc(var(--r-pb) + env(safe-area-inset-bottom, 0px) + var(--r-status-h) + 10px)
     calc(var(--r-pl) + env(safe-area-inset-left, 0px));
 }
 .reader-scroll::-webkit-scrollbar { display: none; }
@@ -253,7 +255,7 @@
   padding:
     calc(var(--r-pt) + env(safe-area-inset-top, 0px))
     0
-    calc(var(--r-pb) + env(safe-area-inset-bottom, 0px))
+    calc(var(--r-pb) + env(safe-area-inset-bottom, 0px) + var(--r-status-h) + 10px)
     0;
 }
 /* 变换层：覆盖整个阅读视口。纸张 + 多列文字都在里面，翻页时整页一起位移。
@@ -265,7 +267,8 @@
   backface-visibility: hidden;
   transform: translate3d(0, 0, 0);
 }
-/* 纸张层：宽度 = 4 页，覆盖当前页左右各一页；位移时背景/纸纹/页边阴影一起走 */
+/* 纸张层：宽度 = 4 页，覆盖当前页左右各一页；位移时背景/纸纹一起走。
+   不再画左右页边阴影（用户要求界面上不出现任何阴影/模糊），只用纯色纸面。 */
 .reader-flip-paper {
   position: absolute;
   top: 0;
@@ -273,23 +276,10 @@
   left: 0;
   width: calc(var(--r-page-w, 100%) * 4);
   background-color: var(--r-bg);
-  background-image: linear-gradient(to right,
-    rgba(0, 0, 0, .13) 0,
-    rgba(0, 0, 0, .04) 9px,
-    rgba(0, 0, 0, 0) 18px,
-    rgba(0, 0, 0, 0) calc(100% - 1px),
-    rgba(0, 0, 0, .085) 100%);
-  background-size: var(--r-page-w, 100%) 100%;
-  background-repeat: repeat-x;
   pointer-events: none;
 }
 .reader-root[data-theme="dark"] .reader-flip-paper {
-  background-image: linear-gradient(to right,
-    rgba(0, 0, 0, .42) 0,
-    rgba(0, 0, 0, .16) 10px,
-    rgba(0, 0, 0, 0) 22px,
-    rgba(0, 0, 0, 0) calc(100% - 1px),
-    rgba(0, 0, 0, .3) 100%);
+  background-color: var(--r-bg);
 }
 .reader-root[data-bg="paper"] .reader-flip-paper::before {
   content: "";
@@ -358,11 +348,12 @@
   left: 0;
   right: 0;
   z-index: 6;
-  transition: opacity .22s ease, transform .26s cubic-bezier(.22, .7, .3, 1);
+  transition: opacity .18s ease, transform .22s ease;
   color: var(--r-ink);
   font-family: var(--font-ui);
-  /* 性能：不要在这里用 backdrop-filter。HUD 覆盖可滚动正文，iOS 上每帧都要
-     对身后内容做高斯模糊，是阅读器卡顿的头号原因。改用不透明度渐变遮住正文。 */
+  /* 纯色不透明：用户明确要求界面上不出现任何模糊/倒影，所以这里没有
+     backdrop-filter、没有渐变淡出、没有文字阴影。 */
+  background: var(--r-bg);
 }
 
 .reader-hud-top {
@@ -371,16 +362,12 @@
   align-items: flex-start;
   gap: 6px;
   padding:
-    calc(env(safe-area-inset-top, 0px) + 8px)
-    calc(env(safe-area-inset-right, 0px) + 10px)
-    26px
-    calc(env(safe-area-inset-left, 0px) + 10px);
-  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来（不依赖模糊） */
-  background: linear-gradient(to bottom,
-    var(--r-bg) 0%,
-    var(--r-bg) 86%,
-    color-mix(in srgb, var(--r-bg) 98%, transparent) 95%,
-    transparent 100%);
+    calc(env(safe-area-inset-top, 0px) + 6px)
+    calc(env(safe-area-inset-right, 0px) + 8px)
+    6px
+    calc(env(safe-area-inset-left, 0px) + 8px);
+  /* 与正文之间只留一条 1px 分割线，不用阴影也不用渐变 */
+  border-bottom: 1px solid var(--r-line);
 }
 
 .r-hud-btn {
@@ -403,7 +390,7 @@
 .r-hud-titles {
   flex: 1 1 auto;
   min-width: 0;
-  padding-top: 1px;
+  padding-top: 3px;
   text-align: center;
 }
 .r-hud-book {
@@ -425,21 +412,38 @@
 }
 .r-hud-side { width: 40px; flex: 0 0 auto; }
 
-/* ---------------------------------------------------------------- 底部 HUD */
+/* ---------------------------------------------------------------- 底部停靠区 */
+
+/* 导航行 + 状态条一起贴在底部；状态条不随沉浸模式收起 */
+.reader-bottom-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  /* 停靠层本身不接触摸：状态条区域的手势要能落到正文上继续滚动 */
+  pointer-events: none;
+}
 
 .reader-hud-bottom {
-  bottom: 0;
+  position: relative;
+  pointer-events: auto;
   padding:
-    26px
+    4px
     calc(env(safe-area-inset-right, 0px) + 8px)
-    calc(env(safe-area-inset-bottom, 0px) + 8px)
+    2px
     calc(env(safe-area-inset-left, 0px) + 8px);
-  /* 下缘实底、上缘淡出：保证文字不会从按钮区透上来（不依赖模糊） */
-  background: linear-gradient(to top,
-    var(--r-bg) 0%,
-    var(--r-bg) 90%,
-    color-mix(in srgb, var(--r-bg) 98%, transparent) 96%,
-    transparent 100%);
+  border-top: 1px solid var(--r-line);
+}
+
+/* 时间 / 章节 / 页码 / 进度：独立状态条，HUD 收起时仍然可见 */
+.reader-status {
+  position: relative;
+  padding: 5px 0 calc(env(safe-area-inset-bottom, 0px) + 5px);
+  background: var(--r-bg);
+  border-top: 1px solid var(--r-line);
+  /* 状态条没有可点元素：让手势穿透到正文，底部 28px 也能起手滚动 */
+  pointer-events: none;
 }
 
 .r-indicators {
@@ -448,8 +452,9 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 18px;
-  padding: 0 12px 5px;
+  padding: 0 14px;
   font-size: 11px;
+  line-height: 18px;
   color: var(--r-muted);
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
@@ -503,22 +508,21 @@
 .r-nav-btn:disabled { opacity: .22; pointer-events: none; }
 .r-nav-btn .r-ico svg { width: 21px; height: 21px; fill: currentColor; }
 
-/* 沉浸：收起全部 HUD */
+/* 沉浸：只收起导航/标题，状态条永远保留（否则时间与进度就一起消失了） */
 .reader-root.hud-hidden .reader-hud { opacity: 0; pointer-events: none; }
-.reader-root.hud-hidden .reader-hud-top { transform: translateY(-10px); }
-.reader-root.hud-hidden .reader-hud-bottom { transform: translateY(12px); }
-.reader-root.hud-hidden .reader-progressline { opacity: 0; }
+.reader-root.hud-hidden .reader-hud-top { transform: translateY(-8px); }
+.reader-root.hud-hidden .reader-hud-bottom { transform: translateY(6px); }
 
-/* 进度线 */
+/* 进度线：贴在状态条上沿，替代额外的阴影/渐变 */
 .reader-progressline {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: -1px;
   z-index: 7;
   height: 2px;
   pointer-events: none;
-  transition: opacity .22s;
+  transition: opacity .18s;
 }
 .reader-progressline i {
   display: block;
@@ -595,7 +599,7 @@
   border: 1px solid var(--r-line);
   border-radius: 18px;
   background: var(--r-bg);
-  box-shadow: var(--shadow-lg);
+  /* 无阴影：与整体「不模糊」的界面语言一致，靠 1px 描边分层 */
   text-align: center;
   font-family: var(--font-ui);
 }

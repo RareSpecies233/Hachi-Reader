@@ -883,12 +883,14 @@
 /* 模糊底图 + 渐变，压住封面溢出的杂色 */
 .hero-bg {
   position: absolute;
-  inset: -20%;
+  inset: 0;
   z-index: 0;
-  background-position: center;
-  background-size: cover;
-  filter: blur(44px) saturate(1.15);
-  opacity: 0.24;
+  /* 用户明确要求界面不要任何模糊：这里用纯色阶代替封面模糊底图 */
+  background:
+    radial-gradient(120% 90% at 12% 0%,
+      color-mix(in srgb, var(--md-primary-container) 70%, transparent) 0%,
+      transparent 62%),
+    linear-gradient(180deg, var(--md-surface-container-low) 0%, var(--md-surface) 100%);
   pointer-events: none;
 }
 .hero-fade {
@@ -913,9 +915,7 @@
   height: 48px;
   background: var(--md-surface-container-high);
   color: var(--md-on-surface);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  box-shadow: var(--md-elevation-1);
+  border: 1px solid var(--md-outline-variant);
 }
 
 .hero-inner {

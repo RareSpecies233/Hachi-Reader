@@ -172,6 +172,7 @@ function sectionReading(ctx) {
     }),
 
     selectRow('正文字体', null, [
+      { value: 'system', label: '系统默认（推荐）', desc: 'iOS 上为苹方 PingFang，缺字最少' },
       { value: 'serif', label: '宋体（衬线）' },
       { value: 'sans', label: '黑体（无衬线）' },
       ...(hasCustomFont() ? [{ value: 'custom', label: '自定义字体' }] : []),

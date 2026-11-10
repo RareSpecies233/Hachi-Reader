@@ -20,7 +20,22 @@
 { "error": { "code": "login_required", "message": "需要登录 wenku8 账号" } }
 ```
 
-常见 `code`：`bad_request` `not_found` `upstream_error` `login_required` `rate_limited` `unauthorized`。
+常见 `code`：
+
+| code | HTTP | 含义 |
+|---|---|---|
+| `bad_request` | 400 | 参数错误 |
+| `unauthorized` | 401 | 访问令牌无效 |
+| `login_required` | 403 | 未配置 wenku8 凭据，或已配置但登录态失效（列表返回登录页/空内容） |
+| `copyright` | 403 | 版权原因不可获取 |
+| `not_found` | 404 | 书籍/章节不存在 |
+| `rate_limited` | 429 | 被上游 Cloudflare 限流（error 1015）；响应带 `Retry-After` |
+| `upstream_blocked` | 502 | 被 Cloudflare 403/挑战页拦截 |
+| `upstream_error` | 502 | 其它上游错误（超时、5xx 等） |
+
+> 说明：`login_required` 同时覆盖"没配凭据"和"配了但登录态失效"。
+> 区分方式见 `GET /api/wk8/status` 的 `source` 与 `lastProbeOk`；
+> 失效时 message 会明确提示"登录态已失效"。
 
 ## 数据模型
 
@@ -72,7 +87,79 @@
 
 ### 健康检查
 
-`GET /api/health` → `{ "ok": true, "version": "0.1.0", "wenku8": { "login": false, "host": "www.wenku8.net" } }`
+`GET /api/health`（免鉴权）：
+
+```json
+{
+  "ok": true,
+  "version": "0.1.0",
+  "tokenRequired": true,
+  "dev": false,
+  "wenku8": {
+    "login": false,
+    "host": "https://www.wenku8.net",
+    "cookie": "bundled",
+    "hosts": ["https://www.wenku8.net", "https://www.wenku8.cc"],
+    "cookieHosts": ["https://www.wenku8.net", "https://www.wenku8.cc"],
+    "requests": 12,
+    "failed": 3,
+    "rejected": 40,
+    "successRate": 0.75,
+    "recentSuccessRate": 0.6,
+    "lastError": "wenku8 当前限流（Cloudflare 1015，已退避 10 秒）",
+    "lastErrorAt": "2026-11-10T15:34:23+08:00",
+    "blocked": false,
+    "blockedUntil": "",
+    "backoffSeconds": 0,
+    "lastProbeAt": "2026-11-10T15:34:30+08:00",
+    "lastProbeOk": false,
+    "lastProbeNote": "wenku8 当前限流：还需等待约 3 秒"
+  }
+}
+```
+
+原有 `login` / `host` / `cookie` 字段保持不变，其余为新增的可观测性信息，可安全忽略。
+
+### wenku8 状态
+
+`GET /api/wk8/status`（需鉴权）返回同一份 wenku8 上游快照，字段与 health 里的 `wenku8` 对象一致，另外包含 `strikes`（连续触发次数）。
+
+```json
+{
+  "source": "bundled",
+  "host": "https://www.wenku8.net",
+  "hosts": ["https://www.wenku8.net", "https://www.wenku8.cc"],
+  "cookieHosts": ["https://www.wenku8.net", "https://www.wenku8.cc"],
+  "login": false,
+  "requests": 12,
+  "success": 9,
+  "failed": 3,
+  "rejected": 40,
+  "successRate": 0.75,
+  "recentSuccessRate": 0.6,
+  "lastError": "wenku8 当前限流（Cloudflare 1015，已退避 10 秒）",
+  "lastErrorAt": "2026-11-10T15:34:23+08:00",
+  "blocked": false,
+  "blockedUntil": "",
+  "backoffSeconds": 0,
+  "strikes": 1,
+  "lastProbeAt": "2026-11-10T15:34:30+08:00",
+  "lastProbeOk": false,
+  "lastProbeNote": "wenku8 当前限流：还需等待约 3 秒"
+}
+```
+
+字段含义：
+
+- `source`：`bundled`（内置公共 Cookie）/ `cookie`（自定义 Cookie）/ `account`（账号登录）/ `none`
+- `cookieHosts`：cookie jar 里真正带登录 Cookie 的 host（用于确认域切换是否丢登录态）
+- `requests` / `success` / `failed`：只统计真正发到上游的请求
+- `rejected`：退避期内被本地快速拒绝的请求数（未打到上游）
+- `recentSuccessRate`：最近 20 次上游请求的成功率
+- `blocked` / `backoffSeconds` / `strikes`：Cloudflare 限流退避状态
+- `lastProbeAt` / `lastProbeOk` / `lastProbeNote`：最近一次列表探测的时间、结果与详情
+
+启动时服务会自动做一次排行榜第 1 页探测；失败会在日志里明确提示（可用 `HACHI_NO_STARTUP_PROBE=1` 关闭）。
 
 ### 发现
 
@@ -87,6 +174,9 @@
 列表响应统一为 `{ "items": [BookCard], "page": 1, "hasMore": true }`。
 
 **需要 wenku8 登录**；未登录返回 403 `login_required`。
+已配置凭据但登录态失效（列表页返回登录页或 HTTP 200 空内容）同样返回 403 `login_required`，message 会说明"登录态已失效"，不会伪装成空列表。
+
+上游限流时返回 429 `rate_limited` 并带 `Retry-After`；服务端会本地退避，期间请求快速失败（不消耗上游配额）。
 
 ### 书籍
 

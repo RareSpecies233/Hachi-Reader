@@ -2,6 +2,7 @@ package wkk
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -22,6 +23,15 @@ func liveClient(t *testing.T) *Client {
 	return c
 }
 
+// skipIfRateLimited 把上游限流标记为 Skip 而不是 FAIL：
+// 429 是 Cloudflare 对出口 IP 的限制，不是代码回归。
+func skipIfRateLimited(t *testing.T, err error) {
+	t.Helper()
+	if errors.Is(err, ErrRateLimited) {
+		t.Skipf("上游限流，跳过: %v", err)
+	}
+}
+
 func TestLiveBook(t *testing.T) {
 	c := liveClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -29,6 +39,7 @@ func TestLiveBook(t *testing.T) {
 
 	book, err := c.Book(ctx, "1")
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("Book(1): %v", err)
 	}
 	if book.Title != "文学少女" {
@@ -48,6 +59,7 @@ func TestLiveVolumesAndChapter(t *testing.T) {
 
 	vols, err := c.Volumes(ctx, "1")
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("Volumes(1): %v", err)
 	}
 	if len(vols) == 0 {
@@ -62,6 +74,7 @@ func TestLiveVolumesAndChapter(t *testing.T) {
 	first := vols[0].Chapters[0]
 	cc, err := c.Chapter(ctx, "1", first.ID)
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("Chapter(%s): %v", first.ID, err)
 	}
 	if len(cc.Blocks) < 10 {
@@ -80,7 +93,8 @@ func TestLiveLoginRequired(t *testing.T) {
 	if err == nil {
 		t.Skip("当前站点允许匿名访问排行榜，跳过断言")
 	}
-	if err != ErrLoginRequired {
+	skipIfRateLimited(t, err)
+	if !errors.Is(err, ErrLoginRequired) {
 		t.Errorf("期望 ErrLoginRequired，实际: %v", err)
 	}
 }
@@ -103,6 +117,7 @@ func TestLiveBundledCookie(t *testing.T) {
 
 	res, err := c.TopList(ctx, "allvisit", 1)
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("TopList: %v", err)
 	}
 	if len(res.Items) == 0 {
@@ -112,6 +127,7 @@ func TestLiveBundledCookie(t *testing.T) {
 
 	sres, err := c.Search(ctx, "文学少女", "articlename", 1)
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("Search: %v", err)
 	}
 	if sres.Single != nil {
