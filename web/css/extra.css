@@ -580,11 +580,11 @@ input.range::-moz-focus-outer { border: 0; }
   background-size: var(--r-paper-tile, 112px) var(--r-paper-tile, 112px);
   opacity: var(--pp-strength, 0.08);
   pointer-events: none;
-  mix-blend-mode: overlay;
+  mix-blend-mode: multiply;
 }
 [data-mode="dark"] .paper-preview-tex {
   background-image: var(--r-paper-tex-dark);
-  mix-blend-mode: soft-light;
+  mix-blend-mode: screen;
 }
 .paper-preview-body { position: relative; padding: 14px 16px 10px; }
 .paper-preview-text {

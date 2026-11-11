@@ -53,12 +53,32 @@ export function toast(msg, ms = 2200) {
 
 let activeSheet = null;
 
-export function closeSheet() {
+export function closeSheet({ animate = true } = {}) {
   if (!activeSheet) return;
-  activeSheet.remove();
+  const el = activeSheet;
   activeSheet = null;
-  overlayEl.hidden = true;
   overlayEl.onclick = null;
+
+  if (!animate) {
+    el.remove();
+    overlayEl.hidden = true;
+    return;
+  }
+
+  // 关闭也要有动画：先播落下/淡出，再真正移除（避免"啪"地消失）
+  el.classList.add('sheet-closing');
+  overlayEl.classList.add('overlay-closing');
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    el.remove();
+    overlayEl.classList.remove('overlay-closing');
+    // 只有确实没有新弹窗时才隐藏遮罩，否则会把刚打开的新 sheet 的遮罩一起关掉
+    if (!activeSheet) overlayEl.hidden = true;
+  };
+  el.addEventListener('animationend', finish, { once: true });
+  setTimeout(finish, 260);
 }
 
 export function sheet({ title = '', body = null, actions = null, onClose = null }) {

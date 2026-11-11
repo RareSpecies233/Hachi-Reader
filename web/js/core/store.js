@@ -71,6 +71,7 @@ export const DEFAULT_SETTINGS = {
   themeFollow: true,
   themeMode: 'dark',     // 仅 themeFollow=false 时生效
   themePalette: 'warm',
+  paperEnabled: true,   // 纸张纹理总开关（关掉可省一次全屏混合合成）
   paperStrength: DEFAULT_PAPER_STRENGTH,
   // 兼容 reader/index.js 的 loop 判断；真实纸纹显隐由 paperStrength 决定
   bgImage: 'paper',      // paper | none
@@ -120,7 +121,7 @@ function migrate(raw) {
   }
   out.themeFollow = !!out.themeFollow;
   out.paperStrength = clamp(Number(out.paperStrength ?? DEFAULT_PAPER_STRENGTH), 0, 1);
-  out.bgImage = out.paperStrength > 0 ? 'paper' : 'none';
+  out.bgImage = out.paperEnabled !== false && out.paperStrength > 0 ? 'paper' : 'none';
   return out;
 }
 
@@ -158,9 +159,14 @@ export const store = {
   patchSettings(patch) {
     Object.assign(this.settings, patch);
     if (this.settings.themeFollow !== undefined) this.settings.themeFollow = !!this.settings.themeFollow;
+    if (patch.paperEnabled !== undefined) {
+      this.settings.paperEnabled = !!patch.paperEnabled;
+      this.settings.bgImage =
+        this.settings.paperEnabled && this.settings.paperStrength > 0 ? 'paper' : 'none';
+    }
     if (patch.paperStrength !== undefined) {
       this.settings.paperStrength = clamp(Number(patch.paperStrength) || 0, 0, 1);
-      this.settings.bgImage = this.settings.paperStrength > 0 ? 'paper' : 'none';
+      this.settings.bgImage = this.settings.paperEnabled !== false && this.settings.paperStrength > 0 ? 'paper' : 'none';
     }
     localStorage.setItem(KEY, JSON.stringify(this.settings));
     applyTheme(this.settings);
@@ -183,10 +189,12 @@ export function resolveMode(s = store.settings) {
 
 /** 纸张强度 → 阅读器纸纹不透明度（亮/暗各一条曲线，强度 1 时明显加强） */
 export function paperOpacity(s = store.settings) {
+  if (s.paperEnabled === false) return 0;
   const v = clamp(Number(s.paperStrength ?? DEFAULT_PAPER_STRENGTH), 0, 1);
   if (v <= 0) return 0;
   // 参考 MIUI 纸质护眼：浅色约 0.10、上限 0.16；深色更淡（≤0.08），否则伤可读性
-  const gain = resolveMode(s) === 'dark' ? 0.26 : 0.46;
+  // multiply 会整体压暗，系数比 overlay 保守；100% 仍是明确的沙粒感
+  const gain = resolveMode(s) === 'dark' ? 0.22 : 0.34;
   return Number((v * gain).toFixed(3));
 }
 

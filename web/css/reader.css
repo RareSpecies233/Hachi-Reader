@@ -73,13 +73,13 @@
   background-image: var(--r-paper-tex);
   background-size: var(--r-paper-tile, 112px) var(--r-paper-tile, 112px);
   background-repeat: repeat;
-  /* overlay：亮处提亮、暗处压暗，颗粒"浮"在纸面上而不整体压灰，
-     更接近沙粒的立体感；multiply 会把纸压得发灰。 */
-  mix-blend-mode: overlay;
+  /* multiply：在浅色纸面上按比例压暗，颗粒才看得见；
+     overlay 在近白底上几乎不改变像素（预览卡片就是这种底，所以会"失效"）。 */
+  mix-blend-mode: multiply;
 }
 .reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
 /* 深色主题用滤色，颗粒才会"发亮"而不是糊成一片 */
-.reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: soft-light; }
+.reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: screen; }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
 .reader-root[data-bg="paper"][data-mode="flip"] .reader-bg { display: none; }
 
@@ -259,11 +259,14 @@
   transform: translateX(-50%);
   overflow: hidden;
 }
-/* 视口负责裁剪；左右留白由每个文本块自己的 padding 负责，页宽 = 容器全宽 */
+/* 视口负责裁剪；左右留白由每个文本块自己的 padding 负责，页宽 = 容器全宽。
+   contain: strict 把布局/绘制/光栅都限制在视口内：翻页时不会因为
+   4 页宽的纸张层 + 十几页宽的多列文字层去重绘视口外的东西。 */
 .reader-flip-viewport {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  contain: strict;
   padding:
     calc(var(--r-pt) + env(safe-area-inset-top, 0px))
     0
@@ -271,22 +274,42 @@
     0;
 }
 /* 变换层：覆盖整个阅读视口。纸张 + 多列文字都在里面，翻页时整页一起位移。
-   HUD 在 .reader-flip 之外，不会被推走。 */
+   HUD 在 .reader-flip 之外，不会被推走。
+   will-change 由 flip-mode.js 在拖动/动画期间临时打开，结束后清掉：
+   常驻会一直占显存，iOS 上尤其明显。 */
 .reader-flip-page {
   position: absolute;
   inset: 0;
-  will-change: transform;
   backface-visibility: hidden;
   transform: translate3d(0, 0, 0);
 }
-/* 纸张层：宽度 = 4 页，覆盖当前页左右各一页；位移时背景/纸纹一起走。
+/* 3 页视窗：只保留「上一页 / 当前页 / 下一页」。整章多列条带（inner）
+   放在这个 overflow:hidden 的窗口里，用 left 偏移换页，不做 transform；
+   否则整章条带会被提升成超大合成层（61 页时约 18M 像素）。 */
+.reader-flip-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--r-page-w, 100%) * 3);
+  overflow: hidden;
+  contain: paint;
+}
+.reader-flip-window .reader-flip-inner {
+  /* 宽高与 left 由 flip-mode.js 按页宽写入 */
+  width: var(--r-page-w, 100%);
+  height: 100%;
+}
+
+/* 纸张层：宽度 = 3 页，覆盖当前页左右各一页；位移时背景/纸纹一起走。
+   拖动最多跨一页，3 页足够；比 4 页少 25% 的光栅面积。
    不再画左右页边阴影（用户要求界面上不出现任何阴影/模糊），只用纯色纸面。 */
 .reader-flip-paper {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: calc(var(--r-page-w, 100%) * 4);
+  width: calc(var(--r-page-w, 100%) * 3);
   background-color: var(--r-bg);
   pointer-events: none;
 }
@@ -892,6 +915,10 @@
 }
 .r-sheet.compact { max-height: 45dvh; }
 @keyframes r-sheet-up { from { transform: translateY(100%); } }
+@keyframes r-sheet-down { to { transform: translateY(100%); } }
+.r-sheet.closing { animation: r-sheet-down var(--md-motion-fast, 180ms) cubic-bezier(.4, 0, 1, 1) forwards; }
+.r-sheet-scrim.closing { animation: r-scrim-out var(--md-motion-fast, 180ms) ease forwards; }
+@keyframes r-scrim-out { to { opacity: 0; } }
 
 .r-sheet-grip {
   flex: 0 0 auto;

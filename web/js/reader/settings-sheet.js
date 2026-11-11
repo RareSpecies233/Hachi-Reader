@@ -50,28 +50,44 @@ export function openSettingsSheet(app) {
   openPanel({ title: '阅读设置', body: mainBody(), scrim: 'normal' });
 }
 
+function animateOut(el) {
+  if (!el) return;
+  el.classList.add('closing');
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    el.remove();
+  };
+  el.addEventListener('animationend', finish, { once: true });
+  setTimeout(finish, 240);
+}
+
 function closeTop() {
   const entry = entries.pop();
   if (!entry) { teardown(); return; }
-  entry.panel.remove();
-  entry.scrim?.remove();
   entry.onClose?.();
   const prev = entries[entries.length - 1];
   if (prev) {
+    // 回到上一层：立即显示下层，同时让上层播关闭动画
     prev.panel.style.display = '';
     if (prev.scrim) prev.scrim.style.display = '';
-  } else {
-    teardown();
+    animateOut(entry.panel);
+    animateOut(entry.scrim);
+    return;
   }
+  animateOut(entry.panel);
+  animateOut(entry.scrim);
+  setTimeout(teardown, 220);
 }
 
 function closeAll() {
   while (entries.length) {
     const e = entries.pop();
-    e.panel.remove();
-    e.scrim?.remove();
+    animateOut(e.panel);
+    animateOut(e.scrim);
   }
-  teardown();
+  setTimeout(teardown, 220);
 }
 
 function teardown() {
@@ -464,8 +480,8 @@ function paperBlock() {
   }
   sync();
   cleanups.push(appRef.store.on('settings', sync));
-  return h('div.paper-block', [
-    h('div.setting-slider', [
+
+  const sliderWrap = h('div.setting-slider', [
       h('div.row-label', [
         h('div.grow', [
           h('div.label', '纸张强度'),
@@ -473,10 +489,22 @@ function paperBlock() {
         ]),
         rowVal,
       ]),
-      input,
-    ]),
+    input,
+  ]);
+
+  const body = h('div.paper-block', [
+    switchRow('纸张纹理', '关闭可减少一次全屏混合合成，翻页更省电', 'paperEnabled'),
+    sliderWrap,
     preview,
   ]);
+  const applyVisible = () => {
+    const on = settings().paperEnabled !== false;
+    sliderWrap.hidden = !on;
+    preview.hidden = !on;
+  };
+  applyVisible();
+  cleanups.push(appRef.store.on('settings', applyVisible));
+  return body;
 }
 
 /* ---------------- 排版子 sheet（靠下、小） ---------------- */

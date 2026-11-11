@@ -1,18 +1,15 @@
 // Hachi Reader — 翻页模式
 //
-// 方案：CSS 多列分页，不自己测量每一行。
-//   文字列宽 = 页面宽度 W，column-gap = 0，column-fill = auto；文字自动铺成 N 列，每列一页。
-//   翻页只做 translate3d(-page * W)，不改 DOM。
+// 方案：CSS 多列分页 + 3 页视窗。
+//   · .reader-flip-inner 是整章的多列文字：宽度 = 页宽，列向溢出成 N 页
+//   · .reader-flip-window 是 3 页宽、overflow:hidden 的窗口，只保留
+//     「上一页 / 当前页 / 下一页」；换页靠 inner 的 left 偏移，不做 transform
+//   · .reader-flip-page 只承担「翻一页」的 transform 动画，落位后瞬移归零
 //
-// 整屏动画（问题 D）：
-//   变换层是 .reader-flip-page —— 一个覆盖整个阅读视口的 page 层，里面同时装着
-//   · .reader-flip-paper：4 页宽的不透明纸张层（背景色 + 纸纹 + 每页页边阴影）
-//   · .reader-flip-inner：多列文字层
-//   位移时纸张与文字一起走，观感是「整页翻过去」，而不是只有文字在动。
-//   HUD 在 .reader-flip 之外，保持静止。
+// 这样参与合成的是 3 页 × 1 屏（约 1M 像素），而不是整章 N 页宽的条带
+// （390 宽、61 页时原本是 23790×756 ≈ 18M 像素，iOS 上必然掉帧）。
 //
-// 图片（问题 C）：翻页模式给插图预留固定高度（CSS aspect/height），不再在 img load 后
-// 重新分页；图片 lazy + async decode，插图章节首屏更轻。
+// 图片：翻页模式给插图预留固定高度，图片异步加载也不会重新分页。
 
 import { h, clear } from '../core/dom.js';
 import {
@@ -24,8 +21,10 @@ export function createFlipMode(app) {
   const viewport = h('div.reader-flip-viewport');
   const pageEl = h('div.reader-flip-page');
   const paper = h('div.reader-flip-paper');
+  const windowEl = h('div.reader-flip-window');
   const inner = h('div.reader-flip-inner');
-  pageEl.append(paper, inner);
+  windowEl.appendChild(inner);
+  pageEl.append(paper, windowEl);
   viewport.appendChild(pageEl);
   el.appendChild(viewport);
 
@@ -34,10 +33,18 @@ export function createFlipMode(app) {
   let page = 0;
   let pageCount = 1;
   let pageW = 0;
-  let innerLeft = 0;
 
   let dragging = false;
   let dragDx = 0;
+
+  // 翻页动画进行中：落位前 page 不前进，避免连续手势读到中间状态
+  let turning = false;
+  let pendingPage = -1;
+  // 正在切章（goAdjacent 已发出、新章还没 load 完）：期间忽略一切翻页手势。
+  // 上游拉取失败/超时时 loadChapter 不会到来，必须超时解锁，否则手势会永久失效。
+  let switching = false;
+  let switchTimer = 0;
+  const SWITCH_TIMEOUT = 6000;
 
   let fadeTimer = 0;
   let settleTimer = 0;
@@ -84,24 +91,57 @@ export function createFlipMode(app) {
     pageEl.style.transform = `translate3d(${x}px,0,0)`;
   }
 
+  // 只在真正要动的时候提升合成层：常驻 will-change 会一直占显存。
+  function setWillChange(on) {
+    const v = on ? 'transform' : '';
+    if (pageEl.style.willChange !== v) pageEl.style.willChange = v;
+  }
+
+  pageEl.addEventListener('transitionend', (e) => {
+    if (e.target !== pageEl || e.propertyName !== 'transform') return;
+    if (!dragging) setWillChange(false);
+  });
+
   function markTurning(on) {
     pageEl.classList.toggle('is-turning', !!on);
     clearTimeout(turnTimer);
     if (on) turnTimer = setTimeout(() => pageEl.classList.remove('is-turning'), 300);
   }
 
-  /** 纸张层始终保证当前页左右各一页可覆盖，移动时不会露出空白 */
-  function syncPaper() {
+  /**
+   * 换页定位：窗口固定覆盖 ±1 页，inner 用 left 把当前页摆到 pageEl 的 0..W。
+   * inner 不做 transform，避免整章条带被提升成超大合成层。
+   */
+  function syncWindow() {
     if (!pageW) return;
-    paper.style.left = `${Math.round(innerLeft + (page - 1) * pageW)}px`;
-    paper.style.width = `${Math.round(pageW * 4)}px`;
+    windowEl.style.left = `${-pageW}px`;
+    windowEl.style.width = `${pageW * 3}px`;
+    inner.style.left = `${(1 - page) * pageW}px`;
+    paper.style.left = `${-pageW}px`;
+    paper.style.width = `${pageW * 3}px`;
+  }
+
+  /**
+   * 横向多列里 lazy 图片不会因为翻页进入视口而加载（视口只裁到当前列），
+   * 翻到插图页会空白。这里把当前页 ±2 页的插图改成 eager，提前触发加载。
+   */
+  function primeImages() {
+    if (!pageW) return;
+    for (const fig of inner.querySelectorAll('.r-fig')) {
+      const img = fig.querySelector('img');
+      if (!img || img.loading === 'eager') continue;
+      const col = Math.round(fig.offsetLeft / pageW);
+      if (Math.abs(col - page) <= 2) img.loading = 'eager';
+    }
   }
 
   function settle() {
     dragDx = 0;
-    setTransform(-page * pageW, 'none');
-    syncPaper();
+    setTransform(0, 'none');
+    syncWindow();
     markTurning(false);
+    setWillChange(false);
+    primeImages();
   }
 
   function layout(progressValue) {
@@ -117,11 +157,9 @@ export function createFlipMode(app) {
 
     const p = progressValue == null ? progress() : progressValue;
 
-    innerLeft = 0;
     pageW = W;
     el.style.setProperty('--r-page-w', `${W}px`);
 
-    inner.style.left = '0px';
     inner.style.top = `${padT}px`;
     inner.style.width = `${W}px`;
     inner.style.height = `${H}px`;
@@ -134,6 +172,8 @@ export function createFlipMode(app) {
     pageCount = Math.max(1, Math.round(sw / W));
     page = Math.min(pageCount - 1, Math.max(0, Math.round(p * (pageCount - 1))));
 
+    turning = false;
+    pendingPage = -1;
     settle();
     lastVW = viewport.clientWidth;
     lastVH = viewport.clientHeight;
@@ -145,12 +185,47 @@ export function createFlipMode(app) {
 
   /* ---------------- 翻页 ---------------- */
 
+  /** 离开当前章：立刻把拖动位移归零，再交给入口切章，避免旧偏移残留到新章 */
+  function leaveChapter(fn) {
+    if (switching) return;
+    switching = true;
+    clearTimeout(switchTimer);
+    switchTimer = setTimeout(() => { switching = false; }, SWITCH_TIMEOUT);
+    dragging = false;
+    dragDx = 0;
+    clearTimeout(settleTimer);
+    clearTimeout(fadeTimer);
+    setTransform(0, 'none');
+    setWillChange(false);
+    markTurning(false);
+    fn();
+  }
+
+  /** 动画落位：把 page 推到目标页并瞬移归零，视觉与动画终点完全一致 */
+  function finishTurn() {
+    if (!turning) return;
+    turning = false;
+    clearTimeout(settleTimer);
+    clearTimeout(fadeTimer);
+    settleTimer = 0;
+    fadeTimer = 0;
+    if (pendingPage >= 0) page = Math.max(0, Math.min(pageCount - 1, pendingPage));
+    pendingPage = -1;
+    syncWindow();
+    setTransform(0, 'none');
+    markTurning(false);
+    setWillChange(false);
+    primeImages();
+    afterPageChange();
+  }
+
   /**
    * @param {number} target 目标页
    * @param {boolean} animate 是否播动画
    * @param {number} fromDx 拖拽结束时的额外位移（让动画从手指位置接着走）
    */
   function goTo(target, animate = true, fromDx = 0) {
+    if (turning) finishTurn();
     target = Math.max(0, Math.min(pageCount - 1, target));
     if (target === page) {
       settle();
@@ -158,54 +233,46 @@ export function createFlipMode(app) {
     }
 
     const anim = getAnim();
-    const from = page;
 
     if (animate && anim === 'fade') {
-      if (fadeTimer) {
-        clearTimeout(fadeTimer);
-        fadeTimer = 0;
-        pageEl.style.opacity = '';
-      }
+      turning = true;
+      pendingPage = target;
       markTurning(true);
-      // 整个 page 层（纸张 + 文字）一起淡出，不再只淡文字
       pageEl.style.transition = 'opacity .12s ease';
       pageEl.style.opacity = '0';
       fadeTimer = setTimeout(() => {
-        fadeTimer = 0;
         if (destroyed) return;
-        page = target;
-        dragDx = 0;
-        pageEl.style.transition = 'none';
-        setTransform(-page * pageW, 'none');
-        syncPaper();
-        void pageEl.offsetWidth;
-        pageEl.style.transition = 'opacity .18s ease';
+        finishTurn();
+        pageEl.style.transition = 'opacity .16s ease';
         pageEl.style.opacity = '1';
-        afterPageChange();
         setTimeout(() => {
           if (!destroyed) { pageEl.style.opacity = ''; pageEl.style.transition = ''; }
-        }, 200);
+        }, 180);
       }, 120);
       return;
     }
 
     if (animate && anim === 'slide') {
       markTurning(true);
-      // 起点固定为「当前页 + 手指位移」，终点是新页；纸张随 page 层一起走
-      const fromX = -from * pageW + fromDx;
-      setTransform(fromX, 'none');
+      setWillChange(true);
+      // 起点固定为手指位置，终点 = 翻一页的方向；落位后再把 page 推过去并归零
+      const dir = target > page ? -1 : 1;
+      setTransform(fromDx, 'none');
       void pageEl.offsetWidth;
-      page = target;
-      dragDx = 0;
-      setTransform(-page * pageW, 'transform .24s cubic-bezier(.22,.7,.3,1)');
-      afterPageChange();
+      setTransform(dir * pageW, 'transform .2s cubic-bezier(.22,.7,.3,1)');
+      turning = true;
+      pendingPage = target;
       clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => { if (!destroyed) syncPaper(); }, 260);
-    } else {
-      page = target;
-      dragDx = 0;
-      settle();
+      settleTimer = setTimeout(() => {
+        if (destroyed) return;
+        finishTurn();
+      }, 220);
+      return;
     }
+
+    page = target;
+    dragDx = 0;
+    settle();
     afterPageChange();
   }
 
@@ -219,71 +286,94 @@ export function createFlipMode(app) {
       chapter = ch;
       dragging = false;
       dragDx = 0;
+      turning = false;
+      pendingPage = -1;
+      switching = false;
+      clearTimeout(switchTimer);
       page = 0;
       pageCount = 1;
       clearTimeout(fadeTimer);
       clearTimeout(settleTimer);
       fadeTimer = 0;
+      settleTimer = 0;
       pageEl.style.opacity = '';
       pageEl.style.transition = '';
+      setWillChange(false);
       build();
       layout(land === 'end' ? 1 : p);
       app.setActive(ch, progress());
     },
 
     nextPage() {
+      if (switching) return;
+      if (turning) finishTurn();
       if (page < pageCount - 1) { goTo(page + 1); return; }
       if (!chapter) return;
       if (!chapter.next) { app.toast('已经是最后一章'); return; }
       if (!app.settings.quickChapterSwitch) { app.toast('已是本章末尾'); return; }
-      app.goAdjacent(1);
+      leaveChapter(() => app.goAdjacent(1));
     },
 
     prevPage() {
+      if (switching) return;
+      if (turning) finishTurn();
       if (page > 0) { goTo(page - 1); return; }
       if (!chapter) return;
       if (!chapter.prev) { app.toast('已经是第一章'); return; }
-      app.goAdjacent(-1, { land: 'end' });
+      leaveChapter(() => app.goAdjacent(-1, { land: 'end' }));
     },
 
     dragStart() {
+      if (switching) return;
+      if (turning) finishTurn();
       clearTimeout(fadeTimer);
       fadeTimer = 0;
       pageEl.style.opacity = '';
       pageEl.style.transition = '';
       dragging = true;
       dragDx = 0;
+      setWillChange(true);
       pageEl.style.transition = 'none';
     },
 
     dragMove(dx) {
-      if (!dragging) return;
+      if (!dragging || switching) return;
       let d = dx;
       if ((page === 0 && d > 0) || (page === pageCount - 1 && d < 0)) d *= 0.3;
       dragDx = d;
-      pageEl.style.transform = `translate3d(${-page * pageW + d}px,0,0)`;
+      pageEl.style.transform = `translate3d(${d}px,0,0)`;
     },
 
-    dragEnd(dx) {
+    /**
+     * @param {number} dx 松手时的水平位移（左负右正）
+     * @param {'next'|'prev'|null} intent 入口按「距离或速度」算好的翻页意图
+     */
+    dragEnd(dx, intent) {
+      if (switching) return;
       if (!dragging) return;
       dragging = false;
-      const threshold = Math.max(40, pageW / 4);
 
-      if (dx < -threshold) {
+      if (intent === 'next') {
         if (page < pageCount - 1) { goTo(page + 1, true, dx); return; }
-        if (chapter?.next && app.settings.quickChapterSwitch) { app.goAdjacent(1); return; }
-      } else if (dx > threshold) {
+        if (chapter?.next && app.settings.quickChapterSwitch) { leaveChapter(() => app.goAdjacent(1)); return; }
+      } else if (intent === 'prev') {
         if (page > 0) { goTo(page - 1, true, dx); return; }
-        if (chapter?.prev) { app.goAdjacent(-1, { land: 'end' }); return; }
+        if (chapter?.prev) { leaveChapter(() => app.goAdjacent(-1, { land: 'end' })); return; }
       }
 
-      // 没过阈值 / 已经到头：回弹
+      // 没过阈值 / 拖动中反悔 / 已经到头：回弹，不翻页
       const anim = getAnim();
-      setTransform(-page * pageW, anim === 'slide' ? 'transform .22s cubic-bezier(.22,.7,.3,1)' : 'none');
+      if (anim === 'slide') setWillChange(true);
+      setTransform(0, anim === 'slide' ? 'transform .18s cubic-bezier(.22,.7,.3,1)' : 'none');
       dragDx = 0;
       if (anim === 'slide') markTurning(true);
       clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => { if (!destroyed) { syncPaper(); markTurning(false); } }, 240);
+      settleTimer = setTimeout(() => {
+        if (destroyed) return;
+        syncWindow();
+        markTurning(false);
+        setWillChange(false);
+      }, 220);
     },
 
     getSnapshot() {
@@ -316,7 +406,9 @@ export function createFlipMode(app) {
       clearTimeout(resizeTimer);
       clearTimeout(settleTimer);
       clearTimeout(turnTimer);
+      clearTimeout(switchTimer);
       if (ro) ro.disconnect();
+      setWillChange(false);
       clear(inner);
       chapter = null;
     },

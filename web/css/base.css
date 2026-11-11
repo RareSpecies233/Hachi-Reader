@@ -2263,6 +2263,12 @@ body.reading .toast { bottom: calc(24px + var(--safe-b)); }
 @keyframes slideup {
   from { transform: translateY(100%); }
 }
+@keyframes slidedown {
+  to { transform: translateY(100%); }
+}
+.sheet.sheet-closing { animation: slidedown var(--md-motion-fast) cubic-bezier(.4, 0, 1, 1) forwards; }
+.overlay.overlay-closing { animation: fadeout var(--md-motion-fast) ease forwards; }
+@keyframes fadeout { to { opacity: 0; } }
 
 .sheet-grip {
   flex: 0 0 auto;

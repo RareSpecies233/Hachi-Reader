@@ -297,19 +297,32 @@ function paperBlock(ctx) {
   // 主题/明暗变化时，纸纹不透明度读数要跟着变
   storeUnsubs.push(ctx.store.on('settings', sync));
 
-  return h('div.paper-block', [
-    h('div.setting-slider', [
-      h('div.row-label', [
-        h('div.grow', [
-          h('div.label', '纸张强度'),
-          desc,
-        ]),
-        rowVal,
+  const sliderWrap = h('div.setting-slider', [
+    h('div.row-label', [
+      h('div.grow', [
+        h('div.label', '纸张强度'),
+        desc,
       ]),
-      input,
+      rowVal,
     ]),
+    input,
+  ]);
+
+  const body = h('div.paper-block', [
+    toggleRow('纸张纹理', '关闭可减少一次全屏混合合成，翻页更省电',
+      () => st().paperEnabled !== false, (v) => patch({ paperEnabled: v })),
+    sliderWrap,
     preview,
   ]);
+
+  const applyVisible = () => {
+    const on = st().paperEnabled !== false;
+    sliderWrap.hidden = !on;
+    preview.hidden = !on;
+  };
+  applyVisible();
+  storeUnsubs.push(ctx.store.on('settings', applyVisible));
+  return body;
 }
 
 function toggleRow(label, desc, get, set) {

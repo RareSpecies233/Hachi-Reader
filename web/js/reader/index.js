@@ -368,6 +368,45 @@ class ReaderApp {
     const stage = this.stage;
     let g = null;
 
+    // 滑动判定（复合）：
+    //   · 距离：min(56px, 屏宽 16%)——390 宽手机约 56px，不再是 97px
+    //   · 速度：最后 ~120ms 的 px/ms > 0.35 且总位移 > 20px 视为轻扫（flick）
+    //   · 横向意图：起手 6px 且 |dx| > |dy| * 1.1
+    //   · 回到起点附近（|dx| < 12）一律不翻页，允许拖动中反悔
+    // 距离或速度满足其一即可翻页；位移 <14px 仍按点按处理，避免和点击翻页冲突。
+    const VELOCITY_WINDOW = 120;
+    const VELOCITY_MIN = 0.35;
+    const TAP_SLOP = 14;
+
+    const distanceThreshold = () => Math.min(56, (stage.clientWidth || innerWidth) * 0.16);
+
+    const velocityOf = (state) => {
+      const samples = state.samples || [];
+      if (samples.length < 2) return 0;
+      const last = samples[samples.length - 1];
+      let first = last;
+      for (let i = samples.length - 1; i >= 0; i--) {
+        if (last.t - samples[i].t > VELOCITY_WINDOW) break;
+        first = samples[i];
+      }
+      const dt = last.t - first.t;
+      if (dt < 16) return 0;
+      return (last.x - first.x) / dt;
+    };
+
+    /** 'next' | 'prev' | null */
+    const swipeIntent = (state) => {
+      const dx = state.dx;
+      const adx = Math.abs(dx);
+      if (adx < 12) return null;                     // 反悔 / 抖动
+      const vx = velocityOf(state);
+      // 速度方向必须与总位移同向，避免「先滑出去再拉回来」被判成 flick
+      const flick = Math.abs(vx) > VELOCITY_MIN && adx > 20 && vx * dx > 0;
+      const far = adx >= distanceThreshold();
+      if (!far && !flick) return null;
+      return dx < 0 ? 'next' : 'prev';
+    };
+
     // HUD、弹层、按钮、图片灯箱、章末卡片都必须优先响应，点击不能穿透成翻页。
     const ignore = (t) => !!(t?.closest?.(
       'button, a, input, select, textarea, .reader-hud, .r-sheet, .sheet, .r-lightbox, .r-end, [data-no-tap]',
@@ -377,9 +416,11 @@ class ReaderApp {
       if (this.destroyed || !e.isPrimary) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       if (ignore(e.target)) return;
+      const now = performance.now();
       g = {
-        x: e.clientX, y: e.clientY, t: performance.now(),
-        dx: 0, dy: 0, moved: false, dragging: false, id: e.pointerId,
+        x: e.clientX, y: e.clientY, t: now,
+        dx: 0, dy: 0, maxDx: 0, moved: false, dragging: false, id: e.pointerId,
+        samples: [{ t: now, x: e.clientX }],
         // 图片：点按交给灯箱，横向拖动仍然翻页。不要 capture，否则 click 目标会变。
         fromImage: !!e.target?.closest?.('.r-img'),
       };
@@ -390,12 +431,18 @@ class ReaderApp {
 
     const move = (e) => {
       if (!g || e.pointerId !== g.id) return;
+      const now = performance.now();
       const dx = e.clientX - g.x;
       const dy = e.clientY - g.y;
       g.dx = dx;
       g.dy = dy;
+      g.maxDx = Math.max(g.maxDx || 0, Math.abs(dx));
 
-      if (!g.dragging && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+      // 维护最近 ~140ms 的采样，用于松手时算速度
+      g.samples.push({ t: now, x: e.clientX });
+      while (g.samples.length > 2 && now - g.samples[0].t > 140) g.samples.shift();
+
+      if (!g.dragging && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy) * 1.1) {
         g.dragging = true;
         this.mode?.dragStart?.();
       }
@@ -410,19 +457,29 @@ class ReaderApp {
       const state = g;
       g = null;
       const dt = performance.now() - state.t;
+      const adx = Math.abs(state.dx);
+      const ady = Math.abs(state.dy);
 
       if (state.dragging) {
         // 拖动结束后浏览器还会补一个 click：别让它同时触发图片灯箱/链接
         this._suppressClickUntil = performance.now() + 380;
-        if (this.mode?.dragEnd) this.mode.dragEnd(state.dx);
-        else if (Math.abs(state.dx) > Math.max(40, stage.clientWidth / 4)) {
-          if (state.dx < 0) this.mode?.nextPage?.();
-          else this.mode?.prevPage?.();
+        const intent = swipeIntent(state);
+        if (this.mode?.dragEnd) {
+          this.mode.dragEnd(state.dx, intent);
+        } else if (intent === 'next') {
+          this.mode?.nextPage?.();
+        } else if (intent === 'prev') {
+          this.mode?.prevPage?.();
+        }
+        // 只有「全程都没超过 TAP_SLOP」的轻微抖动才回退成点按；
+        // 大滑动后拉回起点（反悔）不算点按，否则会误翻页。
+        if (!intent && state.maxDx < TAP_SLOP && dt < 420 && adx < TAP_SLOP && ady < TAP_SLOP) {
+          this.onTap(e.clientX, e.clientY);
         }
         return;
       }
 
-      if (dt < 420 && Math.abs(state.dx) < 14 && Math.abs(state.dy) < 14) {
+      if (dt < 420 && adx < TAP_SLOP && ady < TAP_SLOP) {
         this.onTap(e.clientX, e.clientY);
       }
     };
@@ -431,7 +488,7 @@ class ReaderApp {
       if (!g || e.pointerId !== g.id) return;
       const state = g;
       g = null;
-      if (state.dragging) this.mode?.dragEnd?.(0);
+      if (state.dragging) this.mode?.dragEnd?.(0, null);
     };
 
     const clickGuard = (e) => {
