@@ -9,8 +9,8 @@
   /* 纸张纹理：单层细颗粒，仿 MIUI/HyperOS「纸张护眼」。
      baseFrequency 0.6 接近细腻纸纤维；不做对比度拉伸，避免结块；
      贴图按 1:1 CSS 像素平铺，高分屏是缩小而不是放大。 */
-  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.48' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='nd' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.48' numOctaves='4' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23nd)'/%3E%3C/svg%3E");
+  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='112'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='112' height='112' filter='url(%23n)'/%3E%3C/svg%3E");
+  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='112'%3E%3Cfilter id='nd' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='5' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='112' height='112' filter='url(%23nd)'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------- 根容器 */
@@ -71,7 +71,7 @@
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
   background-image: var(--r-paper-tex);
-  background-size: 160px 160px;
+  background-size: 112px 112px;
   background-repeat: repeat;
   /* 正片叠底把颗粒压进纸面，而不是浮在上面像脏点 */
   mix-blend-mode: multiply;
