@@ -290,8 +290,8 @@ function paperBlock(ctx) {
     rowVal.textContent = `${Math.round(v * 100)}%`;
     capVal.textContent = `${Math.round(v * 100)}%`;
     desc.textContent = `阅读器纸纹不透明度 ${paperOpacity(st()).toFixed(2)}`;
-    // 预览比阅读器稍强一点，小面积里才看得出来
-    tex.style.setProperty('--pp-strength', String(v * 0.30));
+    // 预览与阅读器用同一个不透明度，所见即所得（之前写死 v*0.3，导致预览与正文不一致）
+    tex.style.setProperty('--pp-strength', String(paperOpacity(st())));
   }
   sync();
   // 主题/明暗变化时，纸纹不透明度读数要跟着变

@@ -460,7 +460,7 @@ function paperBlock() {
     rowVal.textContent = `${Math.round(v * 100)}%`;
     capVal.textContent = `${Math.round(v * 100)}%`;
     desc.textContent = `纸纹不透明度 ${paperOpacity(settings()).toFixed(2)}`;
-    tex.style.setProperty('--pp-strength', String(v * 0.30));
+    tex.style.setProperty('--pp-strength', String(paperOpacity(settings())));
   }
   sync();
   cleanups.push(appRef.store.on('settings', sync));
@@ -494,12 +494,9 @@ function openTypography() {
       sliderBlock('行距', null, 'lineHeight', { min: 1.3, max: 2.6, step: 0.05, format: (v) => Number(v).toFixed(2) }),
       sliderBlock('字距', null, 'letterSpacing', { min: -0.5, max: 2, step: 0.1, format: (v) => `${Number(v).toFixed(1)}px` }),
       sliderBlock('段首缩进', null, 'paragraphIndent', { min: 0, max: 3, step: 0.5, format: (v) => `${v} 字` }),
-      segBlock('字重', [
-        { value: 400, label: '常规' },
-        { value: 500, label: '中等' },
-        { value: 600, label: '半粗' },
-        { value: 700, label: '粗' },
-      ], 'fontWeight'),
+      sliderBlock('字重', '可变字体可无级调节；普通字体按 100 一档取整', 'fontWeight', {
+        min: 100, max: 900, step: 1, format: (v) => String(v),
+      }),
     ]),
   });
 }

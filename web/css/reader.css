@@ -6,13 +6,11 @@
 
 :root {
   /* 纸张纹理：内联 SVG，feTurbulence 生成噪点，不依赖外链 */
-  /* 纸张 = 极细颗粒（纸面"齿感"）+ 低频纤维（纸浆纹理）。
-     关键：图块按 1:1 CSS 像素平铺，2x/3x 屏是缩小而非放大，不会有"低码率"块状感；
-     不使用高对比传递，避免噪点结块。 */
-  --r-paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='192' height='192' filter='url(%23g)'/%3E%3C/svg%3E");
-  --r-paper-fiber: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.055' numOctaves='3' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23f)' opacity='.55'/%3E%3C/svg%3E");
-  --r-paper-grain-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Cfilter id='gd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='192' height='192' filter='url(%23gd)'/%3E%3C/svg%3E");
-  --r-paper-fiber-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Cfilter id='fd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.055' numOctaves='3' seed='13' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23fd)' opacity='.45'/%3E%3C/svg%3E");
+  /* 纸张纹理：单层细颗粒，仿 MIUI/HyperOS「纸张护眼」。
+     baseFrequency 0.6 接近细腻纸纤维；不做对比度拉伸，避免结块；
+     贴图按 1:1 CSS 像素平铺，高分屏是缩小而不是放大。 */
+  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.48' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='nd' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.48' numOctaves='4' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23nd)'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------- 根容器 */
@@ -72,16 +70,13 @@
 }
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
-  background-image: var(--r-paper-fiber), var(--r-paper-grain);
-  background-size: 512px 512px, 192px 192px;
-  background-repeat: repeat, repeat;
-  /* 正片叠底让颗粒"压"进纸面，而不是浮在上面像脏点 */
+  background-image: var(--r-paper-tex);
+  background-size: 160px 160px;
+  background-repeat: repeat;
+  /* 正片叠底把颗粒压进纸面，而不是浮在上面像脏点 */
   mix-blend-mode: multiply;
 }
-.reader-root[data-scheme="dark"] {
-  --r-paper-grain: var(--r-paper-grain-dark);
-  --r-paper-fiber: var(--r-paper-fiber-dark);
-}
+.reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
 /* 深色主题用滤色，颗粒才会"发亮"而不是糊成一片 */
 .reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: screen; }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
