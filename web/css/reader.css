@@ -71,14 +71,15 @@
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
   background-image: var(--r-paper-tex);
-  background-size: 112px 112px;
+  background-size: var(--r-paper-tile, 112px) var(--r-paper-tile, 112px);
   background-repeat: repeat;
-  /* 正片叠底把颗粒压进纸面，而不是浮在上面像脏点 */
-  mix-blend-mode: multiply;
+  /* overlay：亮处提亮、暗处压暗，颗粒"浮"在纸面上而不整体压灰，
+     更接近沙粒的立体感；multiply 会把纸压得发灰。 */
+  mix-blend-mode: overlay;
 }
 .reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
 /* 深色主题用滤色，颗粒才会"发亮"而不是糊成一片 */
-.reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: screen; }
+.reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: soft-light; }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
 .reader-root[data-bg="paper"][data-mode="flip"] .reader-bg { display: none; }
 

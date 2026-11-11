@@ -363,8 +363,8 @@ export function applyReaderTheme(root, settings) {
 /** 字体相关变量；只改变量，不重建 DOM */
 export function applyTypography(root, settings) {
   const fs = clamp(Number(settings.fontSize) || 19, 12, 40);
-  const lh = clamp(Number(settings.lineHeight) || 1.85, 1.15, 3);
-  const ls = clamp(Number(settings.letterSpacing) || 0, -1, 6);
+  const lh = clamp(Number(settings.lineHeight) || 1.85, 1.0, 2.6);
+  const ls = clamp(Number(settings.letterSpacing) || 0, -1.0, 2.5);
   const indent = clamp(Number(settings.paragraphIndent) || 0, 0, 6);
 
   root.style.setProperty('--r-fs', `${fs}px`);

@@ -120,7 +120,7 @@ function fontFamilyRow(ctx) {
     const serif = serifStatus();
     descEl.textContent = fam === 'serif' && !serif.family
       ? '当前设备没有可用的宋体，建议改用系统默认或上传自定义字体'
-      : '系统默认最省心；选宋体前会先探测设备是否真的支持';
+      : '可自定义字体';
   }
   sync();
   fontRowRefresh = sync;
@@ -377,13 +377,13 @@ function sectionReading(ctx) {
     }),
 
     sliderRow('行距', null, {
-      min: 1.3, max: 2.6, step: 0.05, value: s.lineHeight,
+      min: 1.0, max: 2.6, step: 0.05, value: s.lineHeight,
       format: (v) => `${v.toFixed(2)} 倍`,
       onInput: (v) => patch({ lineHeight: v }),
     }),
 
     sliderRow('字距', null, {
-      min: -0.5, max: 2, step: 0.1, value: s.letterSpacing,
+      min: -1.0, max: 2.5, step: 0.1, value: s.letterSpacing,
       format: (v) => `${v.toFixed(1)}px`,
       onInput: (v) => patch({ letterSpacing: v }),
     }),

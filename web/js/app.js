@@ -285,6 +285,9 @@ async function boot() {
   // 先确认是否需要令牌，避免未授权时闪一下空书架
   if (!(await ensureAuth())) return;
 
+  // 纸张颗粒：按 DPR 生成锐利噪点（失败时 CSS 里还有 SVG 兜底）
+  import('./core/paper.js').then((m) => m.initPaperTexture()).catch(() => {});
+
   // 自定义字体：必须在首次渲染前完成，否则设置页拿不到字体信息
   // （只请求几百字节的元信息，字体文件本身由 CSS 按需加载）
   try {

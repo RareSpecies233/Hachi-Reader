@@ -267,7 +267,7 @@ function mainBody() {
   /* 字体 */
   const fontGroup = group('字体', [
     fontNavRow(),
-    navRow('排版', '字号 · 行距 · 字距 · 段首缩进', typoVal, () => openTypography()),
+    navRow('排版', '字号 · 行距 · 字距 · 字重 · 段首缩进', typoVal, () => openTypography()),
     switchRow('自动边距', '按屏幕宽度计算舒适留白', 'autoMargin'),
     navRow('手动边距', s.autoMargin ? '进入后自动关闭自动边距' : '上下左右四边留白',
       '', () => openMargins()),
@@ -332,7 +332,7 @@ function fontHint() {
   if (s.fontFamily === 'serif' && !serif.family) {
     return '当前设备没有可用的宋体，建议换系统默认或上传字体';
   }
-  return '系统默认在 iOS 上是苹方，缺字最少；宋体会先探测设备支持';
+  return '可自定义字体';
 }
 
 function syncFontNav() {
@@ -491,11 +491,11 @@ function openTypography() {
     onClose: () => appRef?.toggleHud?.(true),
     body: group('文字排版', [
       sliderBlock('字号', null, 'fontSize', { min: 14, max: 32, step: 1, format: (v) => `${v}px` }),
-      sliderBlock('行距', null, 'lineHeight', { min: 1.3, max: 2.6, step: 0.05, format: (v) => Number(v).toFixed(2) }),
-      sliderBlock('字距', null, 'letterSpacing', { min: -0.5, max: 2, step: 0.1, format: (v) => `${Number(v).toFixed(1)}px` }),
+      sliderBlock('行距', null, 'lineHeight', { min: 1.0, max: 2.6, step: 0.05, format: (v) => Number(v).toFixed(2) }),
+      sliderBlock('字距', null, 'letterSpacing', { min: -1.0, max: 2.5, step: 0.1, format: (v) => `${Number(v).toFixed(1)}px` }),
       sliderBlock('段首缩进', null, 'paragraphIndent', { min: 0, max: 3, step: 0.5, format: (v) => `${v} 字` }),
-      sliderBlock('字重', '可变字体可无级调节；普通字体按 100 一档取整', 'fontWeight', {
-        min: 100, max: 900, step: 1, format: (v) => String(v),
+      sliderBlock('字重', null, 'fontWeight', {
+        min: 100, max: 900, step: 50, format: (v) => String(v),
       }),
     ]),
   });

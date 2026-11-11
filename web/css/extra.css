@@ -577,14 +577,14 @@ input.range::-moz-focus-outer { border: 0; }
   inset: 0;
   background-image: var(--r-paper-tex);
   background-repeat: repeat;
-  background-size: 112px 112px;
+  background-size: var(--r-paper-tile, 112px) var(--r-paper-tile, 112px);
   opacity: var(--pp-strength, 0.08);
   pointer-events: none;
-  mix-blend-mode: multiply;
+  mix-blend-mode: overlay;
 }
 [data-mode="dark"] .paper-preview-tex {
   background-image: var(--r-paper-tex-dark);
-  mix-blend-mode: screen;
+  mix-blend-mode: soft-light;
 }
 .paper-preview-body { position: relative; padding: 14px 16px 10px; }
 .paper-preview-text {
