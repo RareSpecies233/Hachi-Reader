@@ -199,7 +199,6 @@ class ReaderApp {
     this._cleanup.push(this.store.on('rules', () => this.onRulesChanged()));
     reloadRules();
 
-    this.startClock();
     this.syncWakeLock();
     this.lastTradToSimp = !!this.settings.tradToSimp;
     this.lastPrefetchN = Number(this.settings.prefetchChapters) || 0;
@@ -267,13 +266,14 @@ class ReaderApp {
       h('div.r-hud-side'),
     ]);
 
-    this.timeEl = h('span.r-ind-time', '');
+    // 不再显示时间（PWA 顶部系统状态栏本来就有）；把整行宽度让给章节名，
+    // 轻小说的章节标题经常很长，这里用省略号而不是挤压其它指示器。
     this.chapterInd = h('span.r-ind-chapter', '');
     this.pageInd = h('span.r-ind-page', '');
     this.percentInd = h('span.r-ind-percent', '');
     this.indicators = h('div.r-indicators', [
-      this.timeEl,
-      h('div.r-ind-right', [this.chapterInd, this.pageInd, this.percentInd]),
+      this.chapterInd,
+      h('div.r-ind-meta', [this.pageInd, this.percentInd]),
     ]);
 
     this.prevBtn = this.navButton(ICON.prev, '上一章', () => this.goAdjacent(-1));
@@ -795,7 +795,6 @@ class ReaderApp {
     // HUD 展开时强制显示全部指示器（不受三个开关影响）；
     // 沉浸（HUD 收起）时按设置显示。状态条独立于 HUD，不会跟着淡出。
     const force = this.hudVisible;
-    const showTime = force || !!s.showTime;
     const showChapter = force || !!s.showChapter;
     const showProgress = force || !!s.showProgress;
 
@@ -804,7 +803,6 @@ class ReaderApp {
     const pctLabel = vol && vol.count > 1 ? `第 ${vol.no} 卷 · ${pct}%` : `${pct}%`;
     const page = showProgress ? (this.mode?.pageLabel?.() || '') : '';
 
-    this.timeEl.hidden = !showTime;
     this.chapterInd.hidden = !showChapter || !chTitle;
 
     const indTitle = chTitle;
@@ -831,7 +829,7 @@ class ReaderApp {
     this.progressLine.hidden = !showProgress;
 
     // 三个开关全关且 HUD 收起时，状态条没有内容，别留一条空底栏
-    const statusEmpty = this.timeEl.hidden && this.chapterInd.hidden
+    const statusEmpty = this.chapterInd.hidden
       && this.pageInd.hidden && this.percentInd.hidden;
     if (this.statusBar && this.statusBar.hidden !== statusEmpty) {
       this.statusBar.hidden = statusEmpty;
@@ -899,17 +897,6 @@ class ReaderApp {
     // 指示器是否强制显示取决于 HUD 状态，收起/展开后必须重算一次
     this._bands = null;
     this.updateHud();
-  }
-
-  startClock() {
-    const tick = () => {
-      if (this.destroyed) return;
-      const d = new Date();
-      this.timeEl.textContent = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      clearTimeout(this.timeTimer);
-      this.timeTimer = setTimeout(tick, 60000 - (Date.now() % 60000) + 30);
-    };
-    tick();
   }
 
   refreshNav() {
@@ -1027,8 +1014,7 @@ class ReaderApp {
     } else {
       this.resumeSession();
       this.syncWakeLock();
-      this.startClock();
-    }
+      }
   }
 
   flushAll() {

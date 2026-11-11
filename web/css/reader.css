@@ -6,8 +6,13 @@
 
 :root {
   /* 纸张纹理：内联 SVG，feTurbulence 生成噪点，不依赖外链 */
-  --r-paper-tex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.32' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncG type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncB type='linear' slope='2.2' intercept='-0.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.62'/%3E%3C/svg%3E");
-  --r-paper-tex-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.32' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='-2.2' intercept='1.6'/%3E%3CfeFuncG type='linear' slope='-2.2' intercept='1.6'/%3E%3CfeFuncB type='linear' slope='-2.2' intercept='1.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  /* 纸张 = 极细颗粒（纸面"齿感"）+ 低频纤维（纸浆纹理）。
+     关键：图块按 1:1 CSS 像素平铺，2x/3x 屏是缩小而非放大，不会有"低码率"块状感；
+     不使用高对比传递，避免噪点结块。 */
+  --r-paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='192' height='192' filter='url(%23g)'/%3E%3C/svg%3E");
+  --r-paper-fiber: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.055' numOctaves='3' seed='11' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23f)' opacity='.55'/%3E%3C/svg%3E");
+  --r-paper-grain-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Cfilter id='gd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='192' height='192' filter='url(%23gd)'/%3E%3C/svg%3E");
+  --r-paper-fiber-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512'%3E%3Cfilter id='fd'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.055' numOctaves='3' seed='13' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='512' height='512' filter='url(%23fd)' opacity='.45'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------- 根容器 */
@@ -32,6 +37,7 @@
   --r-lh: 1.85;
   --r-ls: 0px;
   --r-indent: 2em;
+  --r-weight: 400;
   --r-pt: 24px;
   --r-pb: 26px;
   --r-pl: 22px;
@@ -66,11 +72,18 @@
 }
 .reader-root[data-bg="paper"] .reader-bg {
   opacity: var(--r-paper-opacity);
-  background-image: var(--r-paper-tex);
-  background-size: 240px 240px;
-  background-repeat: repeat;
+  background-image: var(--r-paper-fiber), var(--r-paper-grain);
+  background-size: 512px 512px, 192px 192px;
+  background-repeat: repeat, repeat;
+  /* 正片叠底让颗粒"压"进纸面，而不是浮在上面像脏点 */
+  mix-blend-mode: multiply;
 }
-.reader-root[data-scheme="dark"] { --r-paper-tex: var(--r-paper-tex-dark); }
+.reader-root[data-scheme="dark"] {
+  --r-paper-grain: var(--r-paper-grain-dark);
+  --r-paper-fiber: var(--r-paper-fiber-dark);
+}
+/* 深色主题用滤色，颗粒才会"发亮"而不是糊成一片 */
+.reader-root[data-scheme="dark"][data-bg="paper"] .reader-bg { mix-blend-mode: screen; }
 /* 翻页模式的纸纹画在会移动的 .reader-flip-paper 上，固定层关掉省一次合成 */
 .reader-root[data-bg="paper"][data-mode="flip"] .reader-bg { display: none; }
 
@@ -97,6 +110,7 @@
 .r-p {
   margin: 0 0 .42em;
   font-family: var(--r-font);
+  font-weight: var(--r-weight, 400);
   font-size: 1em;
   line-height: var(--r-lh);
   letter-spacing: var(--r-ls);
@@ -451,8 +465,7 @@
 .r-indicators {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   min-height: 18px;
   padding: 0 14px;
   font-size: 11px;
@@ -461,20 +474,18 @@
   letter-spacing: .02em;
   font-variant-numeric: tabular-nums;
 }
-.r-ind-time { flex: 0 0 auto; }
-.r-ind-right {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
 .r-ind-chapter {
-  max-width: 40vw;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.r-ind-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
 }
 .r-ind-page, .r-ind-percent { flex: 0 0 auto; }
 .r-ind-right > span:not(:first-child)::before {

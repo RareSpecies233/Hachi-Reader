@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS = {
   // 排版
   fontSize: 19,          // px
   lineHeight: 1.85,      // 倍
+  fontWeight: 400,      // 300 细 / 400 常规 / 500 中等 / 600 半粗 / 700 粗
   fontFamily: 'system',
   customFontId: '',   // 已上传字体里选中的那个  // system | serif | sans | custom
   letterSpacing: 0,      // px
@@ -64,7 +65,6 @@ export const DEFAULT_SETTINGS = {
   seamlessScroll: true,
   keepAwake: false,
   // 指示器
-  showTime: true,
   showChapter: true,
   showProgress: true,
   // 外观（新模型）

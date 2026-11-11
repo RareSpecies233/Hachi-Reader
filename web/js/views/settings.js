@@ -418,8 +418,6 @@ function sectionReading(ctx) {
       }),
     ]),
 
-    toggleRow('时间指示器', '左下角显示当前时间', () => s.showTime,
-      (v) => patch({ showTime: v })),
     toggleRow('章节指示器', '右下角显示章节名', () => s.showChapter,
       (v) => patch({ showChapter: v })),
     toggleRow('进度指示器', '右下角显示阅读进度', () => s.showProgress,

@@ -371,6 +371,9 @@ export function applyTypography(root, settings) {
   root.style.setProperty('--r-lh', String(lh));
   root.style.setProperty('--r-ls', `${ls}px`);
   root.style.setProperty('--r-indent', `${indent}em`);
+  // 字重：系统字体往往只有 regular/bold，其余由浏览器合成，属于预期行为
+  const weight = clamp(Number(settings.fontWeight) || 400, 200, 900);
+  root.style.setProperty('--r-weight', String(weight));
 
   // system / sans：直接用外壳的 UI 无衬线栈（iOS = PingFang SC），
   // 这条栈里没有任何衬线字体，缺字时只会退到 sans-serif，不会出现

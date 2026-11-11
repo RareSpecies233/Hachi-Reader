@@ -293,7 +293,6 @@ function mainBody() {
 
   /* 指示器 */
   const hudGroup = group('指示器', [
-    switchRow('显示时间', '左下角显示当前时间', 'showTime'),
     switchRow('显示章节名', '右下角显示章节名', 'showChapter'),
     switchRow('显示进度', '本章页码与本卷百分比', 'showProgress'),
     sliderBlock('预取章节', '提前缓存后续章节，切章更快', 'prefetchChapters', {
@@ -495,6 +494,12 @@ function openTypography() {
       sliderBlock('行距', null, 'lineHeight', { min: 1.3, max: 2.6, step: 0.05, format: (v) => Number(v).toFixed(2) }),
       sliderBlock('字距', null, 'letterSpacing', { min: -0.5, max: 2, step: 0.1, format: (v) => `${Number(v).toFixed(1)}px` }),
       sliderBlock('段首缩进', null, 'paragraphIndent', { min: 0, max: 3, step: 0.5, format: (v) => `${v} 字` }),
+      segBlock('字重', [
+        { value: 400, label: '常规' },
+        { value: 500, label: '中等' },
+        { value: 600, label: '半粗' },
+        { value: 700, label: '粗' },
+      ], 'fontWeight'),
     ]),
   });
 }

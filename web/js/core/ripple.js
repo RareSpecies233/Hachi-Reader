@@ -169,6 +169,14 @@ function sync() {
   scheduled = false;
   try { syncFab(); } catch (err) { console.warn('[md3] fab', err); }
   try { paintAllRanges(); } catch (err) { console.warn('[md3] range', err); }
+  // 有些面板先插入 DOM、再赋值 value（或反过来），下一帧再补画一次
+  if (!scheduled) {
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      try { paintAllRanges(); } catch { /* 忽略 */ }
+    });
+  }
 }
 
 function scheduleSync() {
@@ -177,13 +185,12 @@ function scheduleSync() {
   requestAnimationFrame(sync);
 }
 
-const view = document.getElementById('view');
-if (view) {
-  new MutationObserver(scheduleSync).observe(view, {
-    childList: true,
-    subtree: true,
-  });
-}
+// 注意：阅读器的设置面板是挂在 document.body 上的，只观察 #view 会漏掉它们，
+// 导致滑块初始的 --p 从未被设置，填充轨道只能落到 CSS 的 50% 兜底。
+new MutationObserver(scheduleSync).observe(document.body, {
+  childList: true,
+  subtree: true,
+});
 
 // 主题切换 / 路由来回时，视图可能整体替换
 addEventListener('hashchange', scheduleSync);
